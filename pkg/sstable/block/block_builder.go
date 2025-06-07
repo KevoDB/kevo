@@ -202,7 +202,7 @@ func (b *Builder) Finish(w io.Writer) (uint64, error) {
 		// Write value (with special handling for tombstones)
 		if entry.Value == nil {
 			// This is a tombstone - write special marker
-			err = binary.Write(buffer, binary.LittleEndian, uint32(TombstoneValueLengthMarker))
+			err = binary.Write(buffer, binary.LittleEndian, TombstoneValueLengthMarker)
 			if err != nil {
 				return 0, fmt.Errorf("failed to write tombstone marker: %w", err)
 			}

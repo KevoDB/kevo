@@ -17,5 +17,5 @@ const (
 	// BlockFooterSize is the size of the footer (checksum + restart point count)
 	BlockFooterSize = 8 + 4 // 8 bytes for checksum, 4 for restart count
 	// TombstoneValueLengthMarker is used to mark tombstones in serialized blocks
-	TombstoneValueLengthMarker = 0xFFFFFFFF
+	TombstoneValueLengthMarker = uint32(0xFFFFFFFF)
 )
