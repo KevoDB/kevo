@@ -93,7 +93,6 @@ type WAL struct {
 	lastSync      time.Time
 	batchByteSize int64
 	status        int32 // Using atomic int32 for status flags
-	closed        int32 // Atomic flag indicating if WAL is closed
 	mu            sync.Mutex
 
 	// Observer-related fields

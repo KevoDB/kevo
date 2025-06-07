@@ -134,7 +134,8 @@ func (b *Batch) Write(w *WAL) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if atomic.LoadInt32(&w.closed) == 1 {
+	status := atomic.LoadInt32(&w.status)
+	if status == WALStatusClosed {
 		return ErrWALClosed
 	}
 
