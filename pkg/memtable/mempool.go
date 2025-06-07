@@ -35,21 +35,25 @@ func NewMemTablePool(cfg *config.Config) *MemTablePool {
 // Put adds a key-value pair to the active MemTable
 func (p *MemTablePool) Put(key, value []byte, seqNum uint64) {
 	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	p.active.Put(key, value, seqNum)
-	p.mu.RUnlock()
 
 	// Check if we need to flush after this write
-	p.checkFlushConditions()
+	// Use the lock-free version since we already hold the read lock
+	p.checkFlushConditionsLocked()
 }
 
 // Delete marks a key as deleted in the active MemTable
 func (p *MemTablePool) Delete(key []byte, seqNum uint64) {
 	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	p.active.Delete(key, seqNum)
-	p.mu.RUnlock()
 
 	// Check if we need to flush after this write
-	p.checkFlushConditions()
+	// Use the lock-free version since we already hold the read lock
+	p.checkFlushConditionsLocked()
 }
 
 // Get retrieves the value for a key from all MemTables
@@ -82,15 +86,21 @@ func (p *MemTablePool) ImmutableCount() int {
 
 // checkFlushConditions checks if we need to flush the active MemTable
 func (p *MemTablePool) checkFlushConditions() {
-	needsFlush := false
-
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	p.checkFlushConditionsLocked()
+}
+
+// checkFlushConditionsLocked checks if we need to flush the active MemTable
+// Assumes the caller already holds p.mu.RLock()
+func (p *MemTablePool) checkFlushConditionsLocked() {
 	// Skip if a flush is already pending
 	if p.flushPending.Load() {
 		return
 	}
+
+	needsFlush := false
 
 	// Check size condition
 	if p.active.ApproximateSize() >= p.maxSize {
