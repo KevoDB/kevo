@@ -199,19 +199,29 @@ func (b *Builder) Finish(w io.Writer) (uint64, error) {
 			return 0, fmt.Errorf("failed to write sequence number: %w", err)
 		}
 
-		// Write value
-		valueLen := uint32(len(entry.Value))
-		err = binary.Write(buffer, binary.LittleEndian, valueLen)
-		if err != nil {
-			return 0, fmt.Errorf("failed to write value length: %w", err)
-		}
+		// Write value (with special handling for tombstones)
+		if entry.Value == nil {
+			// This is a tombstone - write special marker
+			err = binary.Write(buffer, binary.LittleEndian, uint32(TombstoneValueLengthMarker))
+			if err != nil {
+				return 0, fmt.Errorf("failed to write tombstone marker: %w", err)
+			}
+			// No value bytes to write for tombstones
+		} else {
+			// Regular value - write length followed by value
+			valueLen := uint32(len(entry.Value))
+			err = binary.Write(buffer, binary.LittleEndian, valueLen)
+			if err != nil {
+				return 0, fmt.Errorf("failed to write value length: %w", err)
+			}
 
-		n, err := buffer.Write(entry.Value)
-		if err != nil {
-			return 0, fmt.Errorf("failed to write value: %w", err)
-		}
-		if n != len(entry.Value) {
-			return 0, fmt.Errorf("wrote incomplete value: %d of %d bytes", n, len(entry.Value))
+			n, err := buffer.Write(entry.Value)
+			if err != nil {
+				return 0, fmt.Errorf("failed to write value: %w", err)
+			}
+			if n != len(entry.Value) {
+				return 0, fmt.Errorf("wrote incomplete value: %d of %d bytes", n, len(entry.Value))
+			}
 		}
 
 		prevKey = entry.Key

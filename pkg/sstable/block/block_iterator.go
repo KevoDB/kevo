@@ -245,12 +245,19 @@ func (it *Iterator) decodeCurrent() ([]byte, []byte, bool) {
 	valueLen := binary.LittleEndian.Uint32(data)
 	data = data[4:]
 
-	if uint32(len(data)) < valueLen {
-		return nil, nil, false
-	}
+	var value []byte
+	if valueLen == TombstoneValueLengthMarker {
+		// This is a tombstone - value remains nil
+		value = nil
+	} else {
+		// Regular value
+		if uint32(len(data)) < valueLen {
+			return nil, nil, false
+		}
 
-	value := make([]byte, valueLen)
-	copy(value, data[:valueLen])
+		value = make([]byte, valueLen)
+		copy(value, data[:valueLen])
+	}
 
 	it.currentKey = key
 	it.currentVal = value
@@ -336,15 +343,28 @@ func (it *Iterator) decodeNext() ([]byte, []byte, bool) {
 	valueLen := binary.LittleEndian.Uint32(data)
 	data = data[4:]
 
-	if uint32(len(data)) < valueLen {
-		return nil, nil, false
+	var value []byte
+	if valueLen == TombstoneValueLengthMarker {
+		// This is a tombstone - value remains nil
+		value = nil
+	} else {
+		// Regular value
+		if uint32(len(data)) < valueLen {
+			return nil, nil, false
+		}
+
+		value = make([]byte, valueLen)
+		copy(value, data[:valueLen])
 	}
 
-	value := make([]byte, valueLen)
-	copy(value, data[:valueLen])
-
 	it.currentSeqNum = seqNum
-	it.currentPos += 4 + uint32(valueLen)
+
+	// Update position - tombstones only advance by 4 bytes (value length marker)
+	if valueLen == TombstoneValueLengthMarker {
+		it.currentPos += 4
+	} else {
+		it.currentPos += 4 + uint32(valueLen)
+	}
 
 	return key, value, true
 }
