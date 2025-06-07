@@ -1,6 +1,3 @@
-// ABOUTME: Tests sequence number functionality in storage manager
-// ABOUTME: Verifies correct version selection during recovery with sequence numbers
-
 package storage
 
 import (

@@ -63,10 +63,9 @@ type Manager struct {
 	stats stats.Collector
 
 	// Concurrency control
-	mu         sync.RWMutex // Main lock for engine state
-	flushMu    sync.Mutex   // Lock for flushing operations
-	rotatingMu sync.RWMutex // Separate mutex for rotation state
-	rotating   atomic.Bool  // Flag indicating rotation in progress
+	mu       sync.RWMutex // Main lock for engine state
+	flushMu  sync.Mutex   // Lock for flushing operations
+	rotating atomic.Bool  // Flag indicating rotation in progress
 }
 
 // NewManager creates a new storage manager

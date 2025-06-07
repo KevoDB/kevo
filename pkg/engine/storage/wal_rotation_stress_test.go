@@ -1,5 +1,3 @@
-// ABOUTME: Stress test for WAL rotation race condition under concurrent load
-// ABOUTME: Validates enhanced atomic WAL swap implementation handles concurrent writes properly
 package storage
 
 import (
