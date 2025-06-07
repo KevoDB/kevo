@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/KevoDB/kevo/pkg/common/iterator"
 	"github.com/KevoDB/kevo/pkg/config"
@@ -62,8 +63,10 @@ type Manager struct {
 	stats stats.Collector
 
 	// Concurrency control
-	mu      sync.RWMutex // Main lock for engine state
-	flushMu sync.Mutex   // Lock for flushing operations
+	mu         sync.RWMutex // Main lock for engine state
+	flushMu    sync.Mutex   // Lock for flushing operations
+	rotatingMu sync.RWMutex // Separate mutex for rotation state
+	rotating   atomic.Bool  // Flag indicating rotation in progress
 }
 
 // NewManager creates a new storage manager
@@ -152,8 +155,12 @@ func (m *Manager) Put(key, value []byte) error {
 
 	// Define the operation with retry support
 	operation := func() error {
-		// Append to WAL with retry support
-		seqNum, err := m.wal.Append(wal.OpTypePut, key, value)
+		// Append to WAL with retry support using atomic access
+		currentWAL := m.getWAL()
+		if currentWAL == nil {
+			return ErrStorageClosed
+		}
+		seqNum, err := currentWAL.Append(wal.OpTypePut, key, value)
 		if err != nil {
 			if err != wal.ErrWALRotating {
 				m.stats.TrackError("wal_append_error")
@@ -245,8 +252,12 @@ func (m *Manager) Delete(key []byte) error {
 
 	// Define the operation with retry support
 	operation := func() error {
-		// Append to WAL with retry support
-		seqNum, err := m.wal.Append(wal.OpTypeDelete, key, nil)
+		// Append to WAL with retry support using atomic access
+		currentWAL := m.getWAL()
+		if currentWAL == nil {
+			return ErrStorageClosed
+		}
+		seqNum, err := currentWAL.Append(wal.OpTypeDelete, key, nil)
 		if err != nil {
 			if err != wal.ErrWALRotating {
 				m.stats.TrackError("wal_append_error")
@@ -359,8 +370,12 @@ func (m *Manager) ApplyBatch(entries []*wal.Entry) error {
 
 	// Define the operation with retry support
 	operation := func() error {
-		// Append batch to WAL with retry support
-		startSeqNum, err := m.wal.AppendBatch(entries)
+		// Append batch to WAL with retry support using atomic access
+		currentWAL := m.getWAL()
+		if currentWAL == nil {
+			return ErrStorageClosed
+		}
+		startSeqNum, err := currentWAL.AppendBatch(entries)
 		if err != nil {
 			if err != wal.ErrWALRotating {
 				m.stats.TrackError("wal_append_batch_error")
@@ -528,6 +543,19 @@ func (m *Manager) RotateWAL() error {
 
 // rotateWAL is the internal implementation of RotateWAL
 func (m *Manager) rotateWAL() error {
+	// Signal rotation start
+	m.rotating.Store(true)
+
+	defer func() {
+		m.rotating.Store(false)
+	}()
+
+	// Mark old WAL as rotating before creating new one
+	currentWAL := m.getWAL()
+	if currentWAL != nil {
+		currentWAL.SetRotating()
+	}
+
 	// Create a new WAL first before closing the old one
 	newWAL, err := wal.NewWAL(m.cfg, m.walDir)
 	if err != nil {
@@ -537,18 +565,30 @@ func (m *Manager) rotateWAL() error {
 	// Store the old WAL for proper closure
 	oldWAL := m.wal
 
-	// Atomically update the WAL reference
-	m.wal = newWAL
+	// Atomically update the WAL reference using atomic pointer operations
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&m.wal)), unsafe.Pointer(newWAL))
 
 	// Now close the old WAL after the new one is in place
-	if err := oldWAL.Close(); err != nil {
-		// Just log the error but don't fail the rotation
-		// since we've already switched to the new WAL
-		m.stats.TrackError("wal_close_error")
-		fmt.Printf("Warning: error closing old WAL: %v\n", err)
+	if oldWAL != nil {
+		if err := oldWAL.Close(); err != nil {
+			// Just log the error but don't fail the rotation
+			// since we've already switched to the new WAL
+			m.stats.TrackError("wal_close_error")
+			fmt.Printf("Warning: error closing old WAL: %v\n", err)
+		}
 	}
 
 	return nil
+}
+
+// isRotating returns true if WAL rotation is currently in progress
+func (m *Manager) isRotating() bool {
+	return m.rotating.Load()
+}
+
+// getWAL returns the current WAL using atomic operations
+func (m *Manager) getWAL() *wal.WAL {
+	return (*wal.WAL)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&m.wal))))
 }
 
 // GetStorageStats returns storage-specific statistics
@@ -573,9 +613,12 @@ func (m *Manager) Close() error {
 		return nil // Already closed
 	}
 
-	// Close the WAL
-	if err := m.wal.Close(); err != nil {
-		return fmt.Errorf("failed to close WAL: %w", err)
+	// Close the WAL using atomic access
+	currentWAL := m.getWAL()
+	if currentWAL != nil {
+		if err := currentWAL.Close(); err != nil {
+			return fmt.Errorf("failed to close WAL: %w", err)
+		}
 	}
 
 	// Close SSTables
@@ -884,7 +927,10 @@ func (m *Manager) recoverFromWAL() error {
 
 	// Update WAL sequence number to continue from where we left off
 	if maxSeqNum > 0 {
-		m.wal.UpdateNextSequence(maxSeqNum + 1)
+		currentWAL := m.getWAL()
+		if currentWAL != nil {
+			currentWAL.UpdateNextSequence(maxSeqNum + 1)
+		}
 	}
 
 	// Add recovered memtables to the pool
