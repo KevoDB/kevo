@@ -661,9 +661,15 @@ func (m *Manager) flushMemTable(mem *memtable.MemTable) error {
 		// If this is the first key or a different key than the previous one
 		if previousKey == nil || !bytes.Equal(currentKey, previousKey) {
 			// Add this as a new entry (includes tombstones)
+			var valueCopy []byte
+			if currentValue != nil {
+				valueCopy = append([]byte(nil), currentValue...)
+			}
+			// Note: valueCopy remains nil for tombstones
+
 			entries = append(entries, keyEntry{
 				key:    append([]byte(nil), currentKey...),
-				value:  append([]byte(nil), currentValue...), // nil for tombstones
+				value:  valueCopy,
 				seqNum: currentSeqNum,
 			})
 			previousKey = currentKey
@@ -672,9 +678,15 @@ func (m *Manager) flushMemTable(mem *memtable.MemTable) error {
 			lastIndex := len(entries) - 1
 			if currentSeqNum > entries[lastIndex].seqNum {
 				// This is a newer version of the same key, replace the previous entry
+				var valueCopy []byte
+				if currentValue != nil {
+					valueCopy = append([]byte(nil), currentValue...)
+				}
+				// Note: valueCopy remains nil for tombstones
+
 				entries[lastIndex] = keyEntry{
 					key:    append([]byte(nil), currentKey...),
-					value:  append([]byte(nil), currentValue...), // nil for tombstones
+					value:  valueCopy,
 					seqNum: currentSeqNum,
 				}
 			}
