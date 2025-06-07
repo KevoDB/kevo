@@ -49,7 +49,16 @@ func RecoverFromWAL(cfg *config.Config, opts *RecoveryOptions) ([]*MemTable, uin
 		}
 
 		// Update the max sequence number
-		if entry.SequenceNumber > maxSeqNum {
+		if entry.Type == wal.OpTypeBatch {
+			batch, err := wal.DecodeBatch(entry)
+			if err == nil && len(batch.Operations) > 0 {
+				// Since operations are guaranteed sequential, last operation has highest sequence
+				batchMaxSeq := batch.Seq + uint64(len(batch.Operations)) - 1
+				if batchMaxSeq > maxSeqNum {
+					maxSeqNum = batchMaxSeq
+				}
+			}
+		} else if entry.SequenceNumber > maxSeqNum {
 			maxSeqNum = entry.SequenceNumber
 		}
 
@@ -83,12 +92,7 @@ func RecoverFromWAL(cfg *config.Config, opts *RecoveryOptions) ([]*MemTable, uin
 
 	// Stats will be captured in the engine directly
 
-	// For batch operations, we need to adjust maxSeqNum
-	finalTable := memTables[len(memTables)-1]
-	nextSeq := finalTable.GetNextSequenceNumber()
-	if nextSeq > maxSeqNum+1 {
-		maxSeqNum = nextSeq - 1
-	}
+	// maxSeqNum now properly tracks the actual highest sequence number from WAL replay
 
 	return memTables, maxSeqNum, nil
 }
