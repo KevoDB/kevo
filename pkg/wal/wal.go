@@ -95,17 +95,17 @@ const (
 
 // WAL represents a write-ahead log
 type WAL struct {
-	cfg               *config.Config
-	dir               string
-	file              *os.File
-	writer            *bufio.Writer
-	nextSequence      uint64
-	bytesWritten      int64
-	lastSync          time.Time
-	batchByteSize     int64
-	status            int32 // Using atomic int32 for status flags
-	overflowWarning   bool  // Track if overflow warning has been logged
-	mu                sync.Mutex
+	cfg             *config.Config
+	dir             string
+	file            *os.File
+	writer          *bufio.Writer
+	nextSequence    uint64
+	bytesWritten    int64
+	lastSync        time.Time
+	batchByteSize   int64
+	status          int32 // Using atomic int32 for status flags
+	overflowWarning bool  // Track if overflow warning has been logged
+	mu              sync.Mutex
 
 	// Observer-related fields
 	observers   map[string]WALEntryObserver
@@ -244,7 +244,7 @@ func (w *WAL) Append(entryType uint8, key, value []byte) (uint64, error) {
 	if w.nextSequence >= MaxSequenceNumber {
 		return 0, ErrSequenceOverflow
 	}
-	
+
 	// Warning when approaching overflow - only log once
 	if w.nextSequence >= SequenceWarningThreshold && !w.overflowWarning {
 		w.overflowWarning = true
@@ -679,7 +679,7 @@ func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 	if w.nextSequence+uint64(len(entries)) >= MaxSequenceNumber {
 		return 0, ErrSequenceOverflow
 	}
-	
+
 	// Warning when approaching overflow - only log once
 	if w.nextSequence >= SequenceWarningThreshold && !w.overflowWarning {
 		w.overflowWarning = true
@@ -750,7 +750,7 @@ func (w *WAL) AppendBatchWithSequence(entries []*Entry, startSequence uint64) (u
 	if startSequence+uint64(len(entries)) >= MaxSequenceNumber {
 		return 0, ErrSequenceOverflow
 	}
-	
+
 	// Warning when approaching overflow - only log once
 	if startSequence >= SequenceWarningThreshold && !w.overflowWarning {
 		w.overflowWarning = true

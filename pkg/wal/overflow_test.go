@@ -10,7 +10,7 @@ import (
 // TestSequenceNumberOverflow tests that sequence number overflow is properly detected
 func TestSequenceNumberOverflow(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	cfg := &config.Config{
 		WALDir:       tempDir,
 		WALSyncMode:  config.SyncNone,
@@ -37,7 +37,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 // TestSequenceNumberOverflowBatch tests batch overflow detection
 func TestSequenceNumberOverflowBatch(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	cfg := &config.Config{
 		WALDir:       tempDir,
 		WALSyncMode:  config.SyncNone,
@@ -73,7 +73,7 @@ func TestSequenceNumberOverflowBatch(t *testing.T) {
 // TestSequenceNumberOverflowWithSequence tests AppendWithSequence overflow detection
 func TestSequenceNumberOverflowWithSequence(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	cfg := &config.Config{
 		WALDir:       tempDir,
 		WALSyncMode:  config.SyncNone,
@@ -97,7 +97,7 @@ func TestSequenceNumberOverflowWithSequence(t *testing.T) {
 // TestSequenceNumberWarningThreshold tests that warnings are logged appropriately
 func TestSequenceNumberWarningThreshold(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	cfg := &config.Config{
 		WALDir:       tempDir,
 		WALSyncMode:  config.SyncNone,
