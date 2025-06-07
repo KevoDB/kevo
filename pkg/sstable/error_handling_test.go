@@ -1,7 +1,8 @@
 package sstable
 
 import (
-	"strings"
+	"errors"
+	"os"
 	"testing"
 )
 
@@ -83,9 +84,9 @@ func TestCleanupWithInvalidFile(t *testing.T) {
 		t.Error("Expected Cleanup() to return an error when removing non-existent file")
 	}
 
-	// Should contain error about file removal
-	if !strings.Contains(err.Error(), "remove") && !strings.Contains(err.Error(), "no such file") {
-		t.Errorf("Expected error message about file removal, got: %v", err)
+	// Should be able to unwrap to the underlying os.PathError
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Expected error to wrap os.ErrNotExist, got: %v", err)
 	}
 }
 

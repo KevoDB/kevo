@@ -3,6 +3,7 @@ package sstable
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,22 +75,19 @@ func (fm *FileManager) FinalizeFile() error {
 
 // Cleanup removes the temporary file if writing is aborted
 func (fm *FileManager) Cleanup() error {
-	var err error
+	var closeErr, removeErr error
+
 	if fm.file != nil {
-		if closeErr := fm.Close(); closeErr != nil {
-			err = fmt.Errorf("failed to close file during cleanup: %w", closeErr)
+		if err := fm.Close(); err != nil {
+			closeErr = fmt.Errorf("failed to close file during cleanup: %w", err)
 		}
 	}
 
-	if removeErr := os.Remove(fm.tmpPath); removeErr != nil {
-		if err == nil {
-			return fmt.Errorf("failed to remove temp file: %w", removeErr)
-		} else {
-			return fmt.Errorf("multiple cleanup errors: %w; also failed to remove temp file: %v", err, removeErr)
-		}
+	if err := os.Remove(fm.tmpPath); err != nil {
+		removeErr = fmt.Errorf("failed to remove temp file: %w", err)
 	}
 
-	return err
+	return errors.Join(closeErr, removeErr)
 }
 
 // BlockManager handles block building and serialization
@@ -406,11 +404,8 @@ func (w *Writer) flushBlock() error {
 func (w *Writer) Finish() (err error) {
 	defer func() {
 		if closeErr := w.fileManager.Close(); closeErr != nil {
-			if err == nil {
-				err = fmt.Errorf("failed to close file: %w", closeErr)
-			} else {
-				err = fmt.Errorf("multiple errors: %w; also failed to close file: %v", err, closeErr)
-			}
+			closeErr = fmt.Errorf("failed to close file: %w", closeErr)
+			err = errors.Join(err, closeErr)
 		}
 	}()
 
