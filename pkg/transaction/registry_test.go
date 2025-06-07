@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestRegistryBasicOperations(t *testing.T) {
@@ -209,4 +210,109 @@ func TestRegistryConcurrentOperations(t *testing.T) {
 			t.Errorf("Expected transaction %s to be removed", txID)
 		}
 	}
+}
+
+func TestRegistryIdleTransactionCleanup(t *testing.T) {
+	storage := NewMemoryStorage()
+	statsCollector := &StatsCollectorMock{}
+
+	// Create a transaction manager
+	manager := NewManager(storage, statsCollector)
+
+	// Create a registry with very short TTL and idle timeout for testing
+	registry := NewRegistryWithTTL(5*time.Minute, 100*time.Millisecond, 75, 90)
+
+	// Begin a read-only transaction
+	txID, err := registry.Begin(context.Background(), manager, true)
+	if err != nil {
+		t.Errorf("Unexpected error beginning transaction: %v", err)
+	}
+
+	// Verify transaction exists
+	tx, exists := registry.Get(txID)
+	if !exists {
+		t.Error("Expected transaction to exist in registry")
+	}
+
+	// Cast to TransactionImpl to access lastActiveTime
+	txImpl, ok := tx.(*TransactionImpl)
+	if !ok {
+		t.Fatal("Expected TransactionImpl type")
+	}
+
+	// Set lastActiveTime to simulate an idle transaction (older than idle timeout)
+	txImpl.lastActiveTime = time.Now().Add(-200 * time.Millisecond)
+
+	// Wait a bit longer than the idle timeout
+	time.Sleep(150 * time.Millisecond)
+
+	// Manually trigger cleanup by casting to RegistryImpl
+	registryImpl := registry.(*RegistryImpl)
+	registryImpl.CleanupStaleTransactions()
+
+	// Verify transaction was cleaned up
+	_, exists = registry.Get(txID)
+	if exists {
+		t.Error("Expected idle transaction to be cleaned up")
+	}
+}
+
+func TestRegistryLastActiveTimePreventsCleanup(t *testing.T) {
+	storage := NewMemoryStorage()
+	statsCollector := &StatsCollectorMock{}
+
+	// Create a transaction manager
+	manager := NewManager(storage, statsCollector)
+
+	// Create a registry with very short TTL and idle timeout for testing
+	registry := NewRegistryWithTTL(5*time.Minute, 100*time.Millisecond, 75, 90)
+
+	// Begin a read-only transaction
+	txID, err := registry.Begin(context.Background(), manager, true)
+	if err != nil {
+		t.Errorf("Unexpected error beginning transaction: %v", err)
+	}
+
+	// Verify transaction exists
+	tx, exists := registry.Get(txID)
+	if !exists {
+		t.Error("Expected transaction to exist in registry")
+	}
+
+	// Cast to TransactionImpl to access lastActiveTime
+	txImpl, ok := tx.(*TransactionImpl)
+	if !ok {
+		t.Fatal("Expected TransactionImpl type")
+	}
+
+	// Set lastActiveTime to old value initially
+	txImpl.lastActiveTime = time.Now().Add(-200 * time.Millisecond)
+
+	// Simulate activity by performing an operation (this should update lastActiveTime)
+	_, err = tx.Get([]byte("test_key"))
+	if err != nil && err != ErrKeyNotFound {
+		t.Errorf("Unexpected error in Get operation: %v", err)
+	}
+
+	// Verify lastActiveTime was updated (should be recent now)
+	if time.Since(txImpl.lastActiveTime) > 50*time.Millisecond {
+		t.Error("Expected lastActiveTime to be updated after operation")
+	}
+
+	// Wait a bit but less than idle timeout since the operation
+	time.Sleep(50 * time.Millisecond)
+
+	// Manually trigger cleanup by casting to RegistryImpl
+	registryImpl2 := registry.(*RegistryImpl)
+	registryImpl2.CleanupStaleTransactions()
+
+	// Verify transaction was NOT cleaned up because it was recently active
+	_, exists = registry.Get(txID)
+	if !exists {
+		t.Error("Expected active transaction to remain after cleanup")
+	}
+
+	// Clean up
+	tx.Commit()
+	registry.Remove(txID)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestTransactionBasicOperations(t *testing.T) {
@@ -390,4 +391,70 @@ func TestTransactionIterators(t *testing.T) {
 	if closedRangeIt.Valid() {
 		t.Error("Expected range iterator on closed transaction to be invalid")
 	}
+}
+
+func TestLastActiveTimeUpdateOnInvalidOperations(t *testing.T) {
+	storage := NewMemoryStorage()
+	statsCollector := &StatsCollectorMock{}
+	rwLock := &sync.RWMutex{}
+
+	// Create a read-only transaction
+	tx := &TransactionImpl{
+		storage: storage,
+		mode:    ReadOnly,
+		buffer:  NewBuffer(),
+		rwLock:  rwLock,
+		stats:   statsCollector,
+	}
+	tx.active.Store(true)
+
+	// Actually acquire the read lock before setting the flag
+	rwLock.RLock()
+	tx.hasReadLock.Store(true)
+
+	// Set initial lastActiveTime to a known value
+	initialTime := time.Now().Add(-1 * time.Minute)
+	tx.lastActiveTime = initialTime
+
+	// Attempt a PUT operation on read-only transaction (should fail but update lastActiveTime)
+	err := tx.Put([]byte("key1"), []byte("value1"))
+	if err != ErrReadOnlyTransaction {
+		t.Errorf("Expected ErrReadOnlyTransaction, got %v", err)
+	}
+
+	// Verify lastActiveTime was updated despite the operation failing
+	if !tx.lastActiveTime.After(initialTime) {
+		t.Error("Expected lastActiveTime to be updated after invalid PUT operation")
+	}
+
+	// Reset lastActiveTime to test DELETE operation
+	tx.lastActiveTime = initialTime
+
+	// Attempt a DELETE operation on read-only transaction (should fail but update lastActiveTime)
+	err = tx.Delete([]byte("key1"))
+	if err != ErrReadOnlyTransaction {
+		t.Errorf("Expected ErrReadOnlyTransaction, got %v", err)
+	}
+
+	// Verify lastActiveTime was updated despite the operation failing
+	if !tx.lastActiveTime.After(initialTime) {
+		t.Error("Expected lastActiveTime to be updated after invalid DELETE operation")
+	}
+
+	// Test that valid operations also update lastActiveTime
+	tx.lastActiveTime = initialTime
+
+	// GET operation should succeed and update lastActiveTime
+	_, err = tx.Get([]byte("nonexistent"))
+	if err != ErrKeyNotFound {
+		t.Errorf("Expected ErrKeyNotFound, got %v", err)
+	}
+
+	// Verify lastActiveTime was updated for valid operation
+	if !tx.lastActiveTime.After(initialTime) {
+		t.Error("Expected lastActiveTime to be updated after valid GET operation")
+	}
+
+	// Clean up
+	tx.Commit()
 }
