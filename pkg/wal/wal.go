@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KevoDB/kevo/pkg/common/log"
 	"github.com/KevoDB/kevo/pkg/config"
 )
 
@@ -50,6 +52,7 @@ var (
 	ErrWALClosed         = errors.New("WAL is closed")
 	ErrWALRotating       = errors.New("WAL is rotating")
 	ErrWALFull           = errors.New("WAL file is full")
+	ErrSequenceOverflow  = errors.New("sequence number overflow - you've done the impossible")
 )
 
 // Entry represents a logical entry in the WAL
@@ -82,18 +85,27 @@ const (
 	WALStatusClosed   = 2
 )
 
+// Sequence number overflow protection constants
+const (
+	// Reserve 1 million sequence numbers before overflow for graceful shutdown
+	MaxSequenceNumber = math.MaxUint64 - 1_000_000
+	// Warning when 10 million sequence numbers remain
+	SequenceWarningThreshold = math.MaxUint64 - 10_000_000
+)
+
 // WAL represents a write-ahead log
 type WAL struct {
-	cfg           *config.Config
-	dir           string
-	file          *os.File
-	writer        *bufio.Writer
-	nextSequence  uint64
-	bytesWritten  int64
-	lastSync      time.Time
-	batchByteSize int64
-	status        int32 // Using atomic int32 for status flags
-	mu            sync.Mutex
+	cfg               *config.Config
+	dir               string
+	file              *os.File
+	writer            *bufio.Writer
+	nextSequence      uint64
+	bytesWritten      int64
+	lastSync          time.Time
+	batchByteSize     int64
+	status            int32 // Using atomic int32 for status flags
+	overflowWarning   bool  // Track if overflow warning has been logged
+	mu                sync.Mutex
 
 	// Observer-related fields
 	observers   map[string]WALEntryObserver
@@ -228,6 +240,17 @@ func (w *WAL) Append(entryType uint8, key, value []byte) (uint64, error) {
 		return 0, ErrInvalidOpType
 	}
 
+	// Check for sequence number overflow
+	if w.nextSequence >= MaxSequenceNumber {
+		return 0, ErrSequenceOverflow
+	}
+	
+	// Warning when approaching overflow - only log once
+	if w.nextSequence >= SequenceWarningThreshold && !w.overflowWarning {
+		w.overflowWarning = true
+		log.Warn("Congratulations! You've won the impossible lottery. Sequence numbers approaching overflow at %d. Time to consider a new database instance before the universe runs out of numbers.", w.nextSequence)
+	}
+
 	// Sequence number for this entry
 	seqNum := w.nextSequence
 	w.nextSequence++
@@ -290,13 +313,24 @@ func (w *WAL) AppendWithSequence(entryType uint8, key, value []byte, sequenceNum
 		return 0, ErrInvalidOpType
 	}
 
+	// Check for sequence number overflow
+	if sequenceNumber >= MaxSequenceNumber {
+		return 0, ErrSequenceOverflow
+	}
+
 	// Use the provided sequence number directly
 	seqNum := sequenceNumber
 
 	// Update nextSequence if the provided sequence is higher
 	// This ensures future entries won't reuse sequence numbers
 	if seqNum >= w.nextSequence {
-		w.nextSequence = seqNum + 1
+		newNextSeq := seqNum + 1
+		// Check if updating nextSequence would cause overflow issues
+		if newNextSeq >= SequenceWarningThreshold && !w.overflowWarning {
+			w.overflowWarning = true
+			log.Warn("Replication brought sequence numbers to the cosmic threshold at %d. The end of time approaches for this database instance.", newNextSeq)
+		}
+		w.nextSequence = newNextSeq
 	}
 
 	// Encode the entry
@@ -641,6 +675,17 @@ func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 		return w.nextSequence, nil
 	}
 
+	// Check for sequence number overflow with batch size
+	if w.nextSequence+uint64(len(entries)) >= MaxSequenceNumber {
+		return 0, ErrSequenceOverflow
+	}
+	
+	// Warning when approaching overflow - only log once
+	if w.nextSequence >= SequenceWarningThreshold && !w.overflowWarning {
+		w.overflowWarning = true
+		log.Warn("Congratulations! You've won the impossible lottery. Sequence numbers approaching overflow at %d. Time to consider a new database instance before the universe runs out of numbers.", w.nextSequence)
+	}
+
 	// Start sequence number for the batch
 	startSeqNum := w.nextSequence
 
@@ -699,6 +744,17 @@ func (w *WAL) AppendBatchWithSequence(entries []*Entry, startSequence uint64) (u
 
 	if len(entries) == 0 {
 		return startSequence, nil
+	}
+
+	// Check for sequence number overflow with batch size
+	if startSequence+uint64(len(entries)) >= MaxSequenceNumber {
+		return 0, ErrSequenceOverflow
+	}
+	
+	// Warning when approaching overflow - only log once
+	if startSequence >= SequenceWarningThreshold && !w.overflowWarning {
+		w.overflowWarning = true
+		log.Warn("Batch replication pushing sequence numbers toward the void at %d. Time to contemplate database migration before reaching numerical nirvana.", startSequence)
 	}
 
 	// Use the provided sequence number directly
@@ -828,6 +884,11 @@ func (w *WAL) UpdateNextSequence(nextSeq uint64) {
 	defer w.mu.Unlock()
 
 	if nextSeq > w.nextSequence {
+		// Check if the recovered sequence number is dangerously close to overflow
+		if nextSeq >= SequenceWarningThreshold && !w.overflowWarning {
+			w.overflowWarning = true
+			log.Warn("Recovery discovered sequence numbers approaching the edge of infinity at %d. You might want to start planning your database migration before the heat death of the universe.", nextSeq)
+		}
 		w.nextSequence = nextSeq
 	}
 }
