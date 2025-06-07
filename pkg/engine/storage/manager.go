@@ -654,17 +654,22 @@ func (m *Manager) flushMemTable(mem *memtable.MemTable) error {
 		currentValue := iter.Value()
 		currentSeqNum := iter.SequenceNumber()
 
-		// If this is a tombstone (deletion marker), we skip it
-		if currentValue == nil {
-			continue
-		}
+		// Handle both regular values and tombstones (deletion markers)
+		// Tombstones are represented by nil values and must be preserved
+		// in Level 0 SSTables for correct deletion semantics
 
 		// If this is the first key or a different key than the previous one
 		if previousKey == nil || !bytes.Equal(currentKey, previousKey) {
-			// Add this as a new entry
+			// Add this as a new entry (includes tombstones)
+			var valueCopy []byte
+			if currentValue != nil {
+				valueCopy = append([]byte(nil), currentValue...)
+			}
+			// Note: valueCopy remains nil for tombstones
+
 			entries = append(entries, keyEntry{
 				key:    append([]byte(nil), currentKey...),
-				value:  append([]byte(nil), currentValue...),
+				value:  valueCopy,
 				seqNum: currentSeqNum,
 			})
 			previousKey = currentKey
@@ -673,9 +678,15 @@ func (m *Manager) flushMemTable(mem *memtable.MemTable) error {
 			lastIndex := len(entries) - 1
 			if currentSeqNum > entries[lastIndex].seqNum {
 				// This is a newer version of the same key, replace the previous entry
+				var valueCopy []byte
+				if currentValue != nil {
+					valueCopy = append([]byte(nil), currentValue...)
+				}
+				// Note: valueCopy remains nil for tombstones
+
 				entries[lastIndex] = keyEntry{
 					key:    append([]byte(nil), currentKey...),
-					value:  append([]byte(nil), currentValue...),
+					value:  valueCopy,
 					seqNum: currentSeqNum,
 				}
 			}
@@ -684,7 +695,14 @@ func (m *Manager) flushMemTable(mem *memtable.MemTable) error {
 
 	// Now write all collected entries to the SSTable
 	for _, entry := range entries {
-		bytesWritten += uint64(len(entry.key) + len(entry.value))
+		// Calculate bytes written (tombstones have no value bytes)
+		valueLen := uint64(0)
+		if entry.value != nil {
+			valueLen = uint64(len(entry.value))
+		}
+		bytesWritten += uint64(len(entry.key)) + valueLen
+
+		// Write entry to SSTable - AddWithSequence handles both regular values and tombstones
 		if err := writer.AddWithSequence(entry.key, entry.value, entry.seqNum); err != nil {
 			writer.Abort()
 			return fmt.Errorf("failed to add entry with sequence number to SSTable: %w", err)
