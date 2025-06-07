@@ -695,11 +695,13 @@ func (m *Manager) flushMemTable(mem *memtable.MemTable) error {
 
 	// Now write all collected entries to the SSTable
 	for _, entry := range entries {
-		// Calculate bytes written (tombstones have no value bytes)
+		// Calculate bytes written (data payload: keys + values)
+		// Note: This tracks data content, not serialization overhead
 		valueLen := uint64(0)
 		if entry.value != nil {
 			valueLen = uint64(len(entry.value))
 		}
+		// Tombstones have no value data (marker is serialization overhead)
 		bytesWritten += uint64(len(entry.key)) + valueLen
 
 		// Write entry to SSTable - AddWithSequence handles both regular values and tombstones
