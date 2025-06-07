@@ -1,6 +1,3 @@
-// ABOUTME: Tests tombstone preservation during memtable flush to SSTable
-// ABOUTME: Verifies deleted keys remain deleted after restart through SSTable persistence
-
 package storage
 
 import (
