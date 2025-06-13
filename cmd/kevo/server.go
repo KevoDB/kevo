@@ -11,6 +11,7 @@ import (
 	grpcservice "github.com/KevoDB/kevo/pkg/grpc/service"
 	"github.com/KevoDB/kevo/pkg/replication"
 	"github.com/KevoDB/kevo/pkg/transaction"
+	"github.com/KevoDB/kevo/pkg/version"
 	pb "github.com/KevoDB/kevo/proto/kevo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -152,7 +153,7 @@ func (s *Server) Serve() error {
 		return fmt.Errorf("server not initialized, call Start() first")
 	}
 
-	fmt.Println("Starting gRPC server")
+	fmt.Printf("Starting Kevo gRPC server v%s\n", version.GetVersion())
 	return s.grpcServer.Serve(s.listener)
 }
 

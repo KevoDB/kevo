@@ -19,6 +19,7 @@ import (
 	"github.com/KevoDB/kevo/pkg/common/iterator"
 	"github.com/KevoDB/kevo/pkg/engine"
 	"github.com/KevoDB/kevo/pkg/engine/interfaces"
+	"github.com/KevoDB/kevo/pkg/version"
 
 	// Import transaction package to register the transaction creator
 	_ "github.com/KevoDB/kevo/pkg/transaction"
@@ -300,7 +301,7 @@ func setupGracefulShutdown(server *Server, eng *engine.EngineFacade) {
 
 // runInteractive starts the interactive CLI mode
 func runInteractive(eng *engine.EngineFacade, dbPath string) {
-	fmt.Println("Kevo (kevo) version 1.0.2")
+	fmt.Printf("Kevo (kevo) version %s\n", version.GetVersion())
 	fmt.Println("Enter .help for usage hints.")
 
 	var tx interfaces.Transaction

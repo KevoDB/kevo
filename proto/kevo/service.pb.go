@@ -1863,8 +1863,10 @@ type GetNodeInfoResponse struct {
 	PrimaryAddress string         `protobuf:"bytes,2,opt,name=primary_address,json=primaryAddress,proto3" json:"primary_address,omitempty"` // Empty if standalone
 	Replicas       []*ReplicaInfo `protobuf:"bytes,3,rep,name=replicas,proto3" json:"replicas,omitempty"`                                   // Empty if standalone
 	// Node status
-	LastSequence  uint64 `protobuf:"varint,4,opt,name=last_sequence,json=lastSequence,proto3" json:"last_sequence,omitempty"` // Last applied sequence number
-	ReadOnly      bool   `protobuf:"varint,5,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`             // Whether the node is in read-only mode
+	LastSequence uint64 `protobuf:"varint,4,opt,name=last_sequence,json=lastSequence,proto3" json:"last_sequence,omitempty"` // Last applied sequence number
+	ReadOnly     bool   `protobuf:"varint,5,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`             // Whether the node is in read-only mode
+	// Version information
+	Version       string `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"` // Server version
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1932,6 +1934,13 @@ func (x *GetNodeInfoResponse) GetReadOnly() bool {
 		return x.ReadOnly
 	}
 	return false
+}
+
+func (x *GetNodeInfoResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
 }
 
 type ReplicaInfo struct {
@@ -2137,13 +2146,14 @@ const file_proto_kevo_service_proto_rawDesc = "" +
 	"\x05force\x18\x01 \x01(\bR\x05force\"+\n" +
 	"\x0fCompactResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x14\n" +
-	"\x12GetNodeInfoRequest\"\xa6\x02\n" +
+	"\x12GetNodeInfoRequest\"\xc0\x02\n" +
 	"\x13GetNodeInfoResponse\x12?\n" +
 	"\tnode_role\x18\x01 \x01(\x0e2\".kevo.GetNodeInfoResponse.NodeRoleR\bnodeRole\x12'\n" +
 	"\x0fprimary_address\x18\x02 \x01(\tR\x0eprimaryAddress\x12-\n" +
 	"\breplicas\x18\x03 \x03(\v2\x11.kevo.ReplicaInfoR\breplicas\x12#\n" +
 	"\rlast_sequence\x18\x04 \x01(\x04R\flastSequence\x12\x1b\n" +
-	"\tread_only\x18\x05 \x01(\bR\breadOnly\"4\n" +
+	"\tread_only\x18\x05 \x01(\bR\breadOnly\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\"4\n" +
 	"\bNodeRole\x12\x0e\n" +
 	"\n" +
 	"STANDALONE\x10\x00\x12\v\n" +
@@ -2174,7 +2184,7 @@ const file_proto_kevo_service_proto_rawDesc = "" +
 	"\x06TxScan\x12\x13.kevo.TxScanRequest\x1a\x14.kevo.TxScanResponse0\x01\x129\n" +
 	"\bGetStats\x12\x15.kevo.GetStatsRequest\x1a\x16.kevo.GetStatsResponse\x126\n" +
 	"\aCompact\x12\x14.kevo.CompactRequest\x1a\x15.kevo.CompactResponse\x12B\n" +
-	"\vGetNodeInfo\x12\x18.kevo.GetNodeInfoRequest\x1a\x19.kevo.GetNodeInfoResponseB5Z3github.com/jeremytregunna/kevo/pkg/grpc/proto;protob\x06proto3"
+	"\vGetNodeInfo\x12\x18.kevo.GetNodeInfoRequest\x1a\x19.kevo.GetNodeInfoResponseB-Z+github.com/KevoDB/kevo/pkg/grpc/proto;protob\x06proto3"
 
 var (
 	file_proto_kevo_service_proto_rawDescOnce sync.Once

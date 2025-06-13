@@ -235,6 +235,9 @@ message GetNodeInfoResponse {
   // Node status
   uint64 last_sequence = 4;  // Last applied sequence number
   bool read_only = 5;        // Whether the node is in read-only mode
+  
+  // Version information
+  string version = 6;         // Server version
 }
 
 message ReplicaInfo {

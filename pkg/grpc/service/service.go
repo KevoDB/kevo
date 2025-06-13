@@ -11,6 +11,7 @@ import (
 	"github.com/KevoDB/kevo/pkg/engine/interfaces"
 	"github.com/KevoDB/kevo/pkg/replication"
 	"github.com/KevoDB/kevo/pkg/transaction"
+	"github.com/KevoDB/kevo/pkg/version"
 	pb "github.com/KevoDB/kevo/proto/kevo"
 )
 
@@ -662,6 +663,7 @@ func (s *KevoServiceServer) GetNodeInfo(ctx context.Context, req *pb.GetNodeInfo
 		PrimaryAddress: "",
 		Replicas:       nil,
 		LastSequence:   0,
+		Version:        version.GetVersion(),
 	}
 
 	// Return default values if replication manager is nil
