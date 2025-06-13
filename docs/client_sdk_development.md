@@ -48,7 +48,7 @@ The main service is `KevoService`, which contains the following RPC methods:
 
 ### Replication Operations
 
-- `GetNodeInfo(GetNodeInfoRequest) returns (GetNodeInfoResponse)`: Retrieves information about the node's role and replication topology
+- `GetNodeInfo(GetNodeInfoRequest) returns (GetNodeInfoResponse)`: Retrieves information about the node's role, replication topology, and server version
 
 ## Implementation Considerations
 
@@ -231,6 +231,9 @@ When implementing an SDK for a Kevo cluster with replication, your client should
 // Get node information on connection
 nodeInfo = client.getNodeInfo()
 
+// Check server version
+console.log("Connected to Kevo server version: " + nodeInfo.version)
+
 // Check node role
 if (nodeInfo.role == "primary") {
   // Connected to primary
@@ -373,6 +376,7 @@ client.connect()
 // Get node role information
 nodeInfo = client.getNodeInfo()
 console.log("Connected to " + nodeInfo.role + " node")
+console.log("Server version: " + nodeInfo.version)
 
 if (nodeInfo.role == "primary") {
   console.log("This node has " + nodeInfo.replicas.length + " replicas")
