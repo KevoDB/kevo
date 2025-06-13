@@ -60,7 +60,6 @@ For standard operations (Put/Delete), the payload format is:
   - `OpTypePut (1)`: Key-value insertion
   - `OpTypeDelete (2)`: Key deletion
   - `OpTypeMerge (3)`: Value merging (reserved for future use)
-  - `OpTypeBatch (4)`: Batch of operations
 - **Sequence**: A monotonically increasing sequence number
 - **Key Len / Key**: The length and bytes of the key
 - **Value Len / Value**: The length and bytes of the value (omitted for delete operations)
@@ -88,8 +87,9 @@ The `Reader` struct handles reading and validating records:
 
 The `Batch` struct handles atomic multi-operation groups:
 - Collect multiple operations (Put/Delete)
-- Write them as a single atomic unit
+- Write them as a single atomic unit with shared sequence numbers
 - Track operation counts and sizes
+- All operations in a batch share the same sequence number for true atomicity
 
 ### Key Operations
 
@@ -105,9 +105,9 @@ The `Append` method writes a single operation to the log:
 #### Batch Operations
 
 The `AppendBatch` method handles writing multiple operations atomically:
-1. Writes a batch header with operation count
-2. Assigns sequential sequence numbers to operations
-3. Writes all operations with the same basic format
+1. Assigns the same sequence number to all operations in the batch
+2. Writes each operation individually with the shared sequence number
+3. Uses buffered writes to ensure all operations are written atomically
 4. Syncs to disk based on configuration
 
 #### Record Fragmentation
