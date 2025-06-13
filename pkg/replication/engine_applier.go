@@ -80,25 +80,6 @@ func (e *EngineApplier) applyInReadOnlyMode(entry *wal.Entry) error {
 		// Fall back to normal operation which may fail
 		return e.engine.Delete(entry.Key)
 
-	case wal.OpTypeBatch:
-		// Try internal interface first
-		if batcher, ok := e.engine.(interface {
-			ApplyBatchInternal(entries []*wal.Entry) error
-		}); ok {
-			return batcher.ApplyBatchInternal([]*wal.Entry{entry})
-		}
-
-		// Try temporarily disabling read-only mode
-		if setter, ok := e.engine.(interface{ SetReadOnly(bool) }); ok {
-			setter.SetReadOnly(false)
-			err := e.engine.ApplyBatch([]*wal.Entry{entry})
-			setter.SetReadOnly(true)
-			return err
-		}
-
-		// Fall back to normal operation which may fail
-		return e.engine.ApplyBatch([]*wal.Entry{entry})
-
 	case wal.OpTypeMerge:
 		// Handle merge as a put operation for compatibility
 		if setter, ok := e.engine.(interface{ SetReadOnly(bool) }); ok {
@@ -124,9 +105,6 @@ func (e *EngineApplier) applyInNormalMode(entry *wal.Entry) error {
 
 	case wal.OpTypeDelete:
 		return e.engine.Delete(entry.Key)
-
-	case wal.OpTypeBatch:
-		return e.engine.ApplyBatch([]*wal.Entry{entry})
 
 	case wal.OpTypeMerge:
 		// Handle merge as a put operation for compatibility

@@ -129,15 +129,16 @@ func TestWALBatcherWithTransactionBoundaries(t *testing.T) {
 	// Create a batcher that respects transaction boundaries
 	batcher := NewWALBatcher(10, proto.CompressionCodec_NONE, true)
 
-	// Create a batch entry (simulating a transaction start)
-	batchEntry := &wal.Entry{
+	// Create a put entry (simulating a transaction start)
+	putEntry := &wal.Entry{
 		SequenceNumber: 1,
-		Type:           wal.OpTypeBatch,
-		Key:            []byte{}, // Batch entries might have a special format
+		Type:           wal.OpTypePut,
+		Key:            []byte("batch-key"),
+		Value:          []byte("batch-value"),
 	}
 
-	// Add the batch entry
-	_, err := batcher.AddEntry(batchEntry)
+	// Add the put entry
+	_, err := batcher.AddEntry(putEntry)
 	if err != nil {
 		t.Fatalf("Failed to add batch entry: %v", err)
 	}

@@ -30,7 +30,6 @@ const (
 	OpTypePut    = 1
 	OpTypeDelete = 2
 	OpTypeMerge  = 3
-	OpTypeBatch  = 4
 
 	// Header layout
 	// - CRC (4 bytes)
@@ -639,7 +638,6 @@ func (w *WAL) Sync() error {
 	return w.syncLocked()
 }
 
-
 // AppendBatch adds a batch of entries to the WAL atomically
 func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 	w.mu.Lock()
@@ -656,7 +654,7 @@ func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 		return w.nextSequence, nil
 	}
 
-	// Check for sequence number overflow 
+	// Check for sequence number overflow
 	if w.nextSequence >= MaxSequenceNumber {
 		return 0, ErrSequenceOverflow
 	}
@@ -675,26 +673,26 @@ func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 	for _, entry := range entries {
 		// Calculate size for each entry: Header(7) + Payload
 		entryType := entry.Type
-		
+
 		// Payload size: type(1) + seq(8) + keylen(4) + key + [valuelen(4) + value]
 		payloadSize := 1 + 8 + 4 + len(entry.Key)
 		if entryType != OpTypeDelete {
 			payloadSize += 4 + len(entry.Value)
 		}
-		
+
 		totalSize += HeaderSize + payloadSize
 	}
 
 	// Ensure writer buffer is large enough for atomic write
 	currentBufferSize := w.writer.Size()
 	availableSpace := currentBufferSize - w.writer.Buffered()
-	
+
 	if totalSize > availableSpace {
 		// Flush current buffer first, then ensure we have enough space
 		if err := w.writer.Flush(); err != nil {
 			return 0, fmt.Errorf("failed to flush WAL buffer before batch: %w", err)
 		}
-		
+
 		// If total size exceeds buffer capacity, temporarily expand buffer
 		if totalSize > currentBufferSize {
 			// Create a new writer with larger buffer
@@ -744,7 +742,7 @@ func (w *WAL) AppendBatchWithSequence(entries []*Entry, startSequence uint64) (u
 		return startSequence, nil
 	}
 
-	// Check for sequence number overflow 
+	// Check for sequence number overflow
 	if startSequence >= MaxSequenceNumber {
 		return 0, ErrSequenceOverflow
 	}
@@ -763,26 +761,26 @@ func (w *WAL) AppendBatchWithSequence(entries []*Entry, startSequence uint64) (u
 	for _, entry := range entries {
 		// Calculate size for each entry: Header(7) + Payload
 		entryType := entry.Type
-		
+
 		// Payload size: type(1) + seq(8) + keylen(4) + key + [valuelen(4) + value]
 		payloadSize := 1 + 8 + 4 + len(entry.Key)
 		if entryType != OpTypeDelete {
 			payloadSize += 4 + len(entry.Value)
 		}
-		
+
 		totalSize += HeaderSize + payloadSize
 	}
 
 	// Ensure writer buffer is large enough for atomic write
 	currentBufferSize := w.writer.Size()
 	availableSpace := currentBufferSize - w.writer.Buffered()
-	
+
 	if totalSize > availableSpace {
 		// Flush current buffer first, then ensure we have enough space
 		if err := w.writer.Flush(); err != nil {
 			return 0, fmt.Errorf("failed to flush WAL buffer before batch: %w", err)
 		}
-		
+
 		// If total size exceeds buffer capacity, temporarily expand buffer
 		if totalSize > currentBufferSize {
 			// Create a new writer with larger buffer

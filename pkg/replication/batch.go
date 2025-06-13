@@ -96,16 +96,12 @@ func (b *WALBatcher) GetBatchSize() int {
 
 // trackTransaction tracks a transaction by its sequence numbers
 func (b *WALBatcher) trackTransaction(entry *wal.Entry) {
-	if entry.Type == wal.OpTypeBatch {
-		b.mu.Lock()
-		defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-		// Track the start of a batch as a transaction
-		// The value is the expected end sequence number
-		// For simplicity in this implementation, we just store the sequence number itself
-		// In a real implementation, we would parse the batch to determine the actual end sequence
-		b.txSequences[entry.SequenceNumber] = entry.SequenceNumber
-	}
+	// Track transactions by sequence number - all entries with the same sequence number
+	// form an atomic batch/transaction
+	b.txSequences[entry.SequenceNumber] = entry.SequenceNumber
 }
 
 // isTransactionBoundary determines if an entry is a transaction boundary

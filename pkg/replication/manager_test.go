@@ -228,14 +228,15 @@ func TestEngineApplier(t *testing.T) {
 		t.Errorf("Expected no error for Delete, got: %v", err)
 	}
 
-	// Test Batch
+	// Test Merge
 	entry = &wal.Entry{
-		Type: wal.OpTypeBatch,
-		Key:  []byte("test-key"),
+		Type:  wal.OpTypeMerge,
+		Key:   []byte("test-key"),
+		Value: []byte("test-value"),
 	}
 	err = applier.Apply(entry)
 	if err != nil {
-		t.Errorf("Expected no error for Batch, got: %v", err)
+		t.Errorf("Expected no error for Merge, got: %v", err)
 	}
 
 	// Test unsupported type

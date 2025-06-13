@@ -776,7 +776,7 @@ func TestAppendBatchWithSequence(t *testing.T) {
 	for i := 0; i < len(entries) && i < len(replayedEntries); i++ {
 		replayed := replayedEntries[i]
 		expected := entries[i]
-		
+
 		if replayed.SequenceNumber != startSeq {
 			t.Errorf("Entry %d: expected sequence %d, got %d", i, startSeq, replayed.SequenceNumber)
 		}
