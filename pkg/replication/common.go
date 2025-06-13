@@ -179,15 +179,9 @@ func DeserializeWALEntry(payload []byte) (*wal.Entry, error) {
 	fmt.Printf("Entry operation type: %d\n", opType)
 	offset++
 
-	// Check for supported batch operation
-	if opType == wal.OpTypeBatch {
-		fmt.Printf("Found batch operation (type 4), which is supported\n")
-	}
-
 	// Validate operation type
-	// Fix: Add support for OpTypeBatch (4)
 	if opType != wal.OpTypePut && opType != wal.OpTypeDelete &&
-		opType != wal.OpTypeMerge && opType != wal.OpTypeBatch {
+		opType != wal.OpTypeMerge {
 		return nil, fmt.Errorf("invalid operation type: %d", opType)
 	}
 

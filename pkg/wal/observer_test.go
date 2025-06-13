@@ -131,11 +131,6 @@ func TestWALObserver(t *testing.T) {
 
 	// Test batch
 	t.Run("Batch", func(t *testing.T) {
-		batch := NewBatch()
-		batch.Put([]byte("key2"), []byte("value2"))
-		batch.Put([]byte("key3"), []byte("value3"))
-		batch.Delete([]byte("key4"))
-
 		entries := []*Entry{
 			{
 				Key:   []byte("key2"),
