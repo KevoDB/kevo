@@ -52,18 +52,21 @@ func TestBatchEncoding(t *testing.T) {
 		t.Fatalf("Failed to create WAL: %v", err)
 	}
 
-	// Create and write a batch
-	batch := NewBatch()
-	batch.Put([]byte("key1"), []byte("value1"))
-	batch.Put([]byte("key2"), []byte("value2"))
-	batch.Delete([]byte("key3"))
+	// Create batch entries
+	entries := []*Entry{
+		{Type: OpTypePut, Key: []byte("key1"), Value: []byte("value1")},
+		{Type: OpTypePut, Key: []byte("key2"), Value: []byte("value2")},
+		{Type: OpTypeDelete, Key: []byte("key3"), Value: nil},
+	}
 
-	if err := batch.Write(wal); err != nil {
+	// Write the batch using AppendBatch
+	startSeq, err := wal.AppendBatch(entries)
+	if err != nil {
 		t.Fatalf("Failed to write batch: %v", err)
 	}
 
 	// Check sequence
-	if batch.Seq == 0 {
+	if startSeq == 0 {
 		t.Errorf("Batch sequence number not set")
 	}
 
@@ -72,17 +75,11 @@ func TestBatchEncoding(t *testing.T) {
 		t.Fatalf("Failed to close WAL: %v", err)
 	}
 
-	// Replay and decode
-	var decodedBatch *Batch
+	// Replay and verify individual entries
+	var replayedEntries []*Entry
 
 	_, err = ReplayWALDir(dir, func(entry *Entry) error {
-		if entry.Type == OpTypeBatch {
-			var err error
-			decodedBatch, err = DecodeBatch(entry)
-			if err != nil {
-				return err
-			}
-		}
+		replayedEntries = append(replayedEntries, entry)
 		return nil
 	})
 
@@ -90,32 +87,27 @@ func TestBatchEncoding(t *testing.T) {
 		t.Fatalf("Failed to replay WAL: %v", err)
 	}
 
-	if decodedBatch == nil {
-		t.Fatal("No batch found in replay")
+	if len(replayedEntries) != 3 {
+		t.Fatalf("Expected 3 entries, got %d", len(replayedEntries))
 	}
 
-	// Verify decoded batch
-	if decodedBatch.Count() != 3 {
-		t.Errorf("Expected 3 operations, got %d", decodedBatch.Count())
-	}
+	// Verify individual entries match the batch operations
+	expectedKeys := []string{"key1", "key2", "key3"}
+	expectedValues := [][]byte{[]byte("value1"), []byte("value2"), nil} // key3 is deleted
+	expectedTypes := []uint8{OpTypePut, OpTypePut, OpTypeDelete}
 
-	if decodedBatch.Seq != batch.Seq {
-		t.Errorf("Expected sequence %d, got %d", batch.Seq, decodedBatch.Seq)
-	}
-
-	// Verify operations
-	ops := decodedBatch.Operations
-
-	if ops[0].Type != OpTypePut || !bytes.Equal(ops[0].Key, []byte("key1")) || !bytes.Equal(ops[0].Value, []byte("value1")) {
-		t.Errorf("First operation mismatch")
-	}
-
-	if ops[1].Type != OpTypePut || !bytes.Equal(ops[1].Key, []byte("key2")) || !bytes.Equal(ops[1].Value, []byte("value2")) {
-		t.Errorf("Second operation mismatch")
-	}
-
-	if ops[2].Type != OpTypeDelete || !bytes.Equal(ops[2].Key, []byte("key3")) {
-		t.Errorf("Third operation mismatch")
+	for i, entry := range replayedEntries {
+		if string(entry.Key) != expectedKeys[i] {
+			t.Errorf("Entry %d: expected key %s, got %s", i, expectedKeys[i], string(entry.Key))
+		}
+		if entry.Type != expectedTypes[i] {
+			t.Errorf("Entry %d: expected type %d, got %d", i, expectedTypes[i], entry.Type)
+		}
+		if expectedValues[i] == nil && entry.Value != nil {
+			t.Errorf("Entry %d: expected nil value, got %v", i, entry.Value)
+		} else if expectedValues[i] != nil && string(entry.Value) != string(expectedValues[i]) {
+			t.Errorf("Entry %d: expected value %s, got %s", i, string(expectedValues[i]), string(entry.Value))
+		}
 	}
 }
 

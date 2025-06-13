@@ -196,14 +196,15 @@ func TestRecoveryWithBatchOperations(t *testing.T) {
 	tmpDir, w, cleanup := setupTestWAL(t)
 	defer cleanup()
 
-	// Create a batch of operations
-	batch := wal.NewBatch()
-	batch.Put([]byte("batch_key1"), []byte("batch_value1"))
-	batch.Put([]byte("batch_key2"), []byte("batch_value2"))
-	batch.Delete([]byte("batch_key3"))
+	// Create a batch of entries
+	entries := []*wal.Entry{
+		{Type: wal.OpTypePut, Key: []byte("batch_key1"), Value: []byte("batch_value1")},
+		{Type: wal.OpTypePut, Key: []byte("batch_key2"), Value: []byte("batch_value2")},
+		{Type: wal.OpTypeDelete, Key: []byte("batch_key3"), Value: nil},
+	}
 
-	// Write the batch to the WAL
-	if err := batch.Write(w); err != nil {
+	// Write the batch to the WAL using AppendBatch
+	if _, err := w.AppendBatch(entries); err != nil {
 		t.Fatalf("failed to write batch to WAL: %v", err)
 	}
 
@@ -235,8 +236,8 @@ func TestRecoveryWithBatchOperations(t *testing.T) {
 	}
 
 	// The max sequence number should account for batch operations
-	if maxSeq < 3 { // At least 3 from batch + individual op
-		t.Errorf("expected max sequence number >= 3, got %d", maxSeq)
+	if maxSeq < 2 { // batch gets sequence 1, individual op gets sequence 2
+		t.Errorf("expected max sequence number >= 2, got %d", maxSeq)
 	}
 
 	// Validate content of the recovered memtable

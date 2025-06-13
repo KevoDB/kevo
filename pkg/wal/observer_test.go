@@ -190,9 +190,9 @@ func TestWALObserver(t *testing.T) {
 		if len(observer.syncs) != 1 {
 			t.Fatalf("Expected 1 sync notification, got %d", len(observer.syncs))
 		}
-		// Should be 4 because we have written 1 + 3 entries
-		if observer.syncs[0] != 4 {
-			t.Errorf("Expected sync sequence 4, got %d", observer.syncs[0])
+		// Should be 2 because we have written 1 individual entry (seq 1) + 1 batch (seq 2)
+		if observer.syncs[0] != 2 {
+			t.Errorf("Expected sync sequence 2, got %d", observer.syncs[0])
 		}
 	})
 

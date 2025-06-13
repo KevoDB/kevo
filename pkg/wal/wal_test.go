@@ -54,13 +54,13 @@ func TestWALWrite(t *testing.T) {
 	}
 
 	// Verify entries by replaying
-	entries := make(map[string]string)
+	replayedEntries := make(map[string]string)
 
 	_, err = ReplayWALDir(dir, func(entry *Entry) error {
 		if entry.Type == OpTypePut {
-			entries[string(entry.Key)] = string(entry.Value)
+			replayedEntries[string(entry.Key)] = string(entry.Value)
 		} else if entry.Type == OpTypeDelete {
-			delete(entries, string(entry.Key))
+			delete(replayedEntries, string(entry.Key))
 		}
 		return nil
 	})
@@ -71,7 +71,7 @@ func TestWALWrite(t *testing.T) {
 
 	// Verify all entries are present
 	for i, key := range keys {
-		value, ok := entries[key]
+		value, ok := replayedEntries[key]
 		if !ok {
 			t.Errorf("Entry for key %q not found", key)
 			continue
@@ -213,21 +213,17 @@ func TestWALBatch(t *testing.T) {
 		t.Fatalf("Failed to create WAL: %v", err)
 	}
 
-	// Create a batch
-	batch := NewBatch()
-
-	keys := []string{"batch1", "batch2", "batch3"}
-	values := []string{"value1", "value2", "value3"}
-
-	for i, key := range keys {
-		batch.Put([]byte(key), []byte(values[i]))
+	// Create batch entries
+	entries := []*Entry{
+		{Type: OpTypePut, Key: []byte("batch1"), Value: []byte("value1")},
+		{Type: OpTypePut, Key: []byte("batch2"), Value: []byte("value2")},
+		{Type: OpTypePut, Key: []byte("batch3"), Value: []byte("value3")},
+		{Type: OpTypeDelete, Key: []byte("batch2"), Value: nil}, // Delete batch2
 	}
 
-	// Add a delete operation
-	batch.Delete([]byte("batch2"))
-
-	// Write the batch
-	if err := batch.Write(wal); err != nil {
+	// Write the batch using AppendBatch
+	_, err = wal.AppendBatch(entries)
+	if err != nil {
 		t.Fatalf("Failed to write batch: %v", err)
 	}
 
@@ -237,28 +233,13 @@ func TestWALBatch(t *testing.T) {
 	}
 
 	// Verify by replaying
-	entries := make(map[string]string)
+	replayedEntries := make(map[string]string)
 
 	_, err = ReplayWALDir(dir, func(entry *Entry) error {
 		if entry.Type == OpTypePut {
-			entries[string(entry.Key)] = string(entry.Value)
+			replayedEntries[string(entry.Key)] = string(entry.Value)
 		} else if entry.Type == OpTypeDelete {
-			delete(entries, string(entry.Key))
-		} else if entry.Type == OpTypeBatch {
-			// For batch entries, we need to decode the batch and process each operation
-			batch, err := DecodeBatch(entry)
-			if err != nil {
-				return fmt.Errorf("failed to decode batch: %w", err)
-			}
-
-			// Process each operation in the batch
-			for _, op := range batch.Operations {
-				if op.Type == OpTypePut {
-					entries[string(op.Key)] = string(op.Value)
-				} else if op.Type == OpTypeDelete {
-					delete(entries, string(op.Key))
-				}
-			}
+			delete(replayedEntries, string(entry.Key))
 		}
 		return nil
 	})
@@ -275,7 +256,7 @@ func TestWALBatch(t *testing.T) {
 	}
 
 	for key, expectedValue := range expectedEntries {
-		value, ok := entries[key]
+		value, ok := replayedEntries[key]
 		if !ok {
 			t.Errorf("Entry for key %q not found", key)
 			continue
@@ -287,7 +268,7 @@ func TestWALBatch(t *testing.T) {
 	}
 
 	// Verify batch2 is deleted
-	if _, ok := entries["batch2"]; ok {
+	if _, ok := replayedEntries["batch2"]; ok {
 		t.Errorf("Key batch2 should be deleted")
 	}
 }
@@ -751,8 +732,8 @@ func TestAppendBatchWithSequence(t *testing.T) {
 		t.Errorf("Expected batch sequence %d, got %d", startSeq, batchSeq)
 	}
 
-	// Verify nextSequence was updated correctly
-	expectedNextSeq := startSeq + uint64(len(entries))
+	// Verify nextSequence was updated correctly (incremented by 1, not batch size)
+	expectedNextSeq := startSeq + 1
 	if wal.GetNextSequence() != expectedNextSeq {
 		t.Errorf("Expected next sequence to be %d, got %d", expectedNextSeq, wal.GetNextSequence())
 	}
@@ -773,49 +754,10 @@ func TestAppendBatchWithSequence(t *testing.T) {
 	}
 
 	// Replay and verify all entries
-	var normalEntries []*Entry
-	var batchHeaderFound bool
+	var replayedEntries []*Entry
 
 	_, err = ReplayWALDir(dir, func(entry *Entry) error {
-		if entry.Type == OpTypeBatch {
-			batchHeaderFound = true
-			if entry.SequenceNumber == startSeq {
-				// Decode the batch to verify its contents
-				batch, err := DecodeBatch(entry)
-				if err == nil {
-					// Verify batch sequence
-					if batch.Seq != startSeq {
-						t.Errorf("Expected batch seq %d, got %d", startSeq, batch.Seq)
-					}
-
-					// Verify batch count
-					if len(batch.Operations) != len(entries) {
-						t.Errorf("Expected %d operations, got %d", len(entries), len(batch.Operations))
-					}
-
-					// Verify batch operations
-					for i, op := range batch.Operations {
-						if i < len(entries) {
-							expected := entries[i]
-							if op.Type != expected.Type {
-								t.Errorf("Operation %d: expected type %d, got %d", i, expected.Type, op.Type)
-							}
-							if string(op.Key) != string(expected.Key) {
-								t.Errorf("Operation %d: expected key %q, got %q", i, string(expected.Key), string(op.Key))
-							}
-							if expected.Type != OpTypeDelete && string(op.Value) != string(expected.Value) {
-								t.Errorf("Operation %d: expected value %q, got %q", i, string(expected.Value), string(op.Value))
-							}
-						}
-					}
-				} else {
-					t.Errorf("Failed to decode batch: %v", err)
-				}
-			}
-		} else if entry.SequenceNumber == normalSeq {
-			// Store normal entry
-			normalEntries = append(normalEntries, entry)
-		}
+		replayedEntries = append(replayedEntries, entry)
 		return nil
 	})
 
@@ -823,22 +765,45 @@ func TestAppendBatchWithSequence(t *testing.T) {
 		t.Fatalf("Failed to replay WAL: %v", err)
 	}
 
-	// Verify batch header was found
-	if !batchHeaderFound {
-		t.Error("Batch header entry not found")
+	// We should have len(entries) + 1 entries (batch entries + normal entry)
+	expectedCount := len(entries) + 1
+	if len(replayedEntries) != expectedCount {
+		t.Errorf("Expected %d total entries, got %d", expectedCount, len(replayedEntries))
 	}
 
-	// Verify normal entry was found
-	if len(normalEntries) == 0 {
-		t.Error("Normal entry not found")
-	} else {
-		// Check normal entry details
-		normalEntry := normalEntries[0]
+	// Verify batch entries (first len(entries) entries should match our batch)
+	// All batch entries should have the same sequence number
+	for i := 0; i < len(entries) && i < len(replayedEntries); i++ {
+		replayed := replayedEntries[i]
+		expected := entries[i]
+		
+		if replayed.SequenceNumber != startSeq {
+			t.Errorf("Entry %d: expected sequence %d, got %d", i, startSeq, replayed.SequenceNumber)
+		}
+		if replayed.Type != expected.Type {
+			t.Errorf("Entry %d: expected type %d, got %d", i, expected.Type, replayed.Type)
+		}
+		if string(replayed.Key) != string(expected.Key) {
+			t.Errorf("Entry %d: expected key %q, got %q", i, string(expected.Key), string(replayed.Key))
+		}
+		if expected.Type != OpTypeDelete && string(replayed.Value) != string(expected.Value) {
+			t.Errorf("Entry %d: expected value %q, got %q", i, string(expected.Value), string(replayed.Value))
+		}
+	}
+
+	// Verify normal entry (should be the last entry)
+	if len(replayedEntries) > len(entries) {
+		normalEntry := replayedEntries[len(entries)]
+		if normalEntry.SequenceNumber != normalSeq {
+			t.Errorf("Expected normal entry sequence %d, got %d", normalSeq, normalEntry.SequenceNumber)
+		}
 		if string(normalEntry.Key) != "normal_key" {
 			t.Errorf("Expected key 'normal_key', got %q", string(normalEntry.Key))
 		}
 		if string(normalEntry.Value) != "normal_value" {
 			t.Errorf("Expected value 'normal_value', got %q", string(normalEntry.Value))
 		}
+	} else {
+		t.Error("Normal entry not found")
 	}
 }

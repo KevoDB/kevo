@@ -169,7 +169,7 @@ func (r *Reader) parseEntryData(data []byte) (*Entry, error) {
 	offset++
 
 	// Validate entry type
-	if entryType != OpTypePut && entryType != OpTypeDelete && entryType != OpTypeMerge && entryType != OpTypeBatch {
+	if entryType != OpTypePut && entryType != OpTypeDelete && entryType != OpTypeMerge {
 		return nil, fmt.Errorf("%w: %d", ErrInvalidOpType, entryType)
 	}
 

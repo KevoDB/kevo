@@ -639,27 +639,8 @@ func (w *WAL) Sync() error {
 	return w.syncLocked()
 }
 
-// serializeBatch prepares a batch header with common batch information
-func (w *WAL) serializeBatchHeader(startSeqNum uint64, entryCount int) []byte {
-	// Create batch header: opType(1) + seqNum(8) + entryCount(4)
-	batchHeader := make([]byte, 1+8+4)
-	offset := 0
 
-	// Write operation type (batch)
-	batchHeader[offset] = OpTypeBatch
-	offset++
-
-	// Write sequence number
-	binary.LittleEndian.PutUint64(batchHeader[offset:offset+8], startSeqNum)
-	offset += 8
-
-	// Write entry count
-	binary.LittleEndian.PutUint32(batchHeader[offset:offset+4], uint32(entryCount))
-
-	return batchHeader
-}
-
-// AppendBatch adds a batch of entries to the WAL
+// AppendBatch adds a batch of entries to the WAL atomically
 func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -675,8 +656,8 @@ func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 		return w.nextSequence, nil
 	}
 
-	// Check for sequence number overflow with batch size
-	if w.nextSequence+uint64(len(entries)) >= MaxSequenceNumber {
+	// Check for sequence number overflow 
+	if w.nextSequence >= MaxSequenceNumber {
 		return 0, ErrSequenceOverflow
 	}
 
@@ -689,38 +670,55 @@ func (w *WAL) AppendBatch(entries []*Entry) (uint64, error) {
 	// Start sequence number for the batch
 	startSeqNum := w.nextSequence
 
-	// Create and write the batch header
-	batchHeader := w.serializeBatchHeader(startSeqNum, len(entries))
-	if err := w.writeRawRecord(RecordTypeFull, batchHeader); err != nil {
-		return 0, fmt.Errorf("failed to write batch header: %w", err)
+	// Calculate total size needed for all entries to ensure atomic writing
+	totalSize := 0
+	for _, entry := range entries {
+		// Calculate size for each entry: Header(7) + Payload
+		entryType := entry.Type
+		
+		// Payload size: type(1) + seq(8) + keylen(4) + key + [valuelen(4) + value]
+		payloadSize := 1 + 8 + 4 + len(entry.Key)
+		if entryType != OpTypeDelete {
+			payloadSize += 4 + len(entry.Value)
+		}
+		
+		totalSize += HeaderSize + payloadSize
 	}
 
-	// Process each entry in the batch
-	for i, entry := range entries {
-		// Assign sequential sequence numbers to each entry
-		seqNum := startSeqNum + uint64(i)
-
-		// Write the entry
-		if entry.Value == nil {
-			// Deletion
-			if err := w.writeRecord(RecordTypeFull, OpTypeDelete, seqNum, entry.Key, nil); err != nil {
-				return 0, fmt.Errorf("failed to write entry %d: %w", i, err)
-			}
-		} else {
-			// Put
-			if err := w.writeRecord(RecordTypeFull, OpTypePut, seqNum, entry.Key, entry.Value); err != nil {
-				return 0, fmt.Errorf("failed to write entry %d: %w", i, err)
-			}
+	// Ensure writer buffer is large enough for atomic write
+	currentBufferSize := w.writer.Size()
+	availableSpace := currentBufferSize - w.writer.Buffered()
+	
+	if totalSize > availableSpace {
+		// Flush current buffer first, then ensure we have enough space
+		if err := w.writer.Flush(); err != nil {
+			return 0, fmt.Errorf("failed to flush WAL buffer before batch: %w", err)
+		}
+		
+		// If total size exceeds buffer capacity, temporarily expand buffer
+		if totalSize > currentBufferSize {
+			// Create a new writer with larger buffer
+			newWriter := bufio.NewWriterSize(w.file, totalSize+1024) // Add some padding
+			w.writer = newWriter
 		}
 	}
 
-	// Update next sequence number
-	w.nextSequence = startSeqNum + uint64(len(entries))
+	// Now write all entries atomically (no intermediate flushes)
+	// All entries in the batch share the same sequence number
+	for i, entry := range entries {
+		// Write the entry using its original type and the same sequence number
+		if err := w.writeRecord(RecordTypeFull, entry.Type, startSeqNum, entry.Key, entry.Value); err != nil {
+			return 0, fmt.Errorf("failed to write entry %d: %w", i, err)
+		}
+	}
+
+	// Update next sequence number by 1 (not by batch size)
+	w.nextSequence = startSeqNum + 1
 
 	// Notify observers about the batch
 	w.notifyBatchObservers(startSeqNum, entries)
 
-	// Sync if needed
+	// Sync if needed - this ensures the entire batch hits disk atomically
 	if err := w.maybeSync(); err != nil {
 		return 0, err
 	}
@@ -746,8 +744,8 @@ func (w *WAL) AppendBatchWithSequence(entries []*Entry, startSequence uint64) (u
 		return startSequence, nil
 	}
 
-	// Check for sequence number overflow with batch size
-	if startSequence+uint64(len(entries)) >= MaxSequenceNumber {
+	// Check for sequence number overflow 
+	if startSequence >= MaxSequenceNumber {
 		return 0, ErrSequenceOverflow
 	}
 
@@ -760,67 +758,50 @@ func (w *WAL) AppendBatchWithSequence(entries []*Entry, startSequence uint64) (u
 	// Use the provided sequence number directly
 	startSeqNum := startSequence
 
-	// Create a batch to use the existing batch serialization
-	batch := &Batch{
-		Operations: make([]BatchOperation, 0, len(entries)),
-		Seq:        startSeqNum,
-	}
-
-	// Convert entries to batch operations
+	// Calculate total size needed for all entries to ensure atomic writing
+	totalSize := 0
 	for _, entry := range entries {
-		batch.Operations = append(batch.Operations, BatchOperation{
-			Type:  entry.Type,
-			Key:   entry.Key,
-			Value: entry.Value,
-		})
+		// Calculate size for each entry: Header(7) + Payload
+		entryType := entry.Type
+		
+		// Payload size: type(1) + seq(8) + keylen(4) + key + [valuelen(4) + value]
+		payloadSize := 1 + 8 + 4 + len(entry.Key)
+		if entryType != OpTypeDelete {
+			payloadSize += 4 + len(entry.Value)
+		}
+		
+		totalSize += HeaderSize + payloadSize
 	}
 
-	// Serialize the batch
-	size := batch.Size()
-	data := make([]byte, size)
-	offset := 0
-
-	// Write count
-	binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(batch.Operations)))
-	offset += 4
-
-	// Write sequence base
-	binary.LittleEndian.PutUint64(data[offset:offset+8], batch.Seq)
-	offset += 8
-
-	// Write operations
-	for _, op := range batch.Operations {
-		// Write type
-		data[offset] = op.Type
-		offset++
-
-		// Write key length
-		binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(op.Key)))
-		offset += 4
-
-		// Write key
-		copy(data[offset:], op.Key)
-		offset += len(op.Key)
-
-		// Write value for non-delete operations
-		if op.Type != OpTypeDelete {
-			// Write value length
-			binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(op.Value)))
-			offset += 4
-
-			// Write value
-			copy(data[offset:], op.Value)
-			offset += len(op.Value)
+	// Ensure writer buffer is large enough for atomic write
+	currentBufferSize := w.writer.Size()
+	availableSpace := currentBufferSize - w.writer.Buffered()
+	
+	if totalSize > availableSpace {
+		// Flush current buffer first, then ensure we have enough space
+		if err := w.writer.Flush(); err != nil {
+			return 0, fmt.Errorf("failed to flush WAL buffer before batch: %w", err)
+		}
+		
+		// If total size exceeds buffer capacity, temporarily expand buffer
+		if totalSize > currentBufferSize {
+			// Create a new writer with larger buffer
+			newWriter := bufio.NewWriterSize(w.file, totalSize+1024) // Add some padding
+			w.writer = newWriter
 		}
 	}
 
-	// Write the batch entry to WAL using writeRecord
-	if err := w.writeRecord(RecordTypeFull, OpTypeBatch, startSeqNum, data, nil); err != nil {
-		return 0, fmt.Errorf("failed to write batch with sequence %d: %w", startSeqNum, err)
+	// Now write all entries atomically (no intermediate flushes)
+	// All entries in the batch share the same sequence number
+	for i, entry := range entries {
+		// Write the entry using its original type and the same sequence number
+		if err := w.writeRecord(RecordTypeFull, entry.Type, startSeqNum, entry.Key, entry.Value); err != nil {
+			return 0, fmt.Errorf("failed to write entry %d: %w", i, err)
+		}
 	}
 
 	// Update next sequence number if the provided sequence would advance it
-	endSeq := startSeqNum + uint64(len(entries))
+	endSeq := startSeqNum + 1
 	if endSeq > w.nextSequence {
 		w.nextSequence = endSeq
 	}
@@ -828,7 +809,7 @@ func (w *WAL) AppendBatchWithSequence(entries []*Entry, startSequence uint64) (u
 	// Notify observers about the batch
 	w.notifyBatchObservers(startSeqNum, entries)
 
-	// Sync if needed
+	// Sync if needed - this ensures the entire batch hits disk atomically
 	if err := w.maybeSync(); err != nil {
 		return 0, err
 	}

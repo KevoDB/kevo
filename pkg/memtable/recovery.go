@@ -49,16 +49,7 @@ func RecoverFromWAL(cfg *config.Config, opts *RecoveryOptions) ([]*MemTable, uin
 		}
 
 		// Update the max sequence number
-		if entry.Type == wal.OpTypeBatch {
-			batch, err := wal.DecodeBatch(entry)
-			if err == nil && len(batch.Operations) > 0 {
-				// Since operations are guaranteed sequential, last operation has highest sequence
-				batchMaxSeq := batch.Seq + uint64(len(batch.Operations)) - 1
-				if batchMaxSeq > maxSeqNum {
-					maxSeqNum = batchMaxSeq
-				}
-			}
-		} else if entry.SequenceNumber > maxSeqNum {
+		if entry.SequenceNumber > maxSeqNum {
 			maxSeqNum = entry.SequenceNumber
 		}
 

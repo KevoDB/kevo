@@ -51,17 +51,12 @@ func TestSequenceNumberOverflowBatch(t *testing.T) {
 	}
 	defer wal.Close()
 
-	// Set sequence number to near overflow, but allow for a small batch
-	wal.nextSequence = MaxSequenceNumber - 5
+	// Set sequence number to exactly at overflow point
+	wal.nextSequence = MaxSequenceNumber
 
-	// Create a batch that would overflow
+	// Create a batch that would overflow (any batch will overflow at this point)
 	entries := []*Entry{
 		{Key: []byte("key1"), Value: []byte("value1")},
-		{Key: []byte("key2"), Value: []byte("value2")},
-		{Key: []byte("key3"), Value: []byte("value3")},
-		{Key: []byte("key4"), Value: []byte("value4")},
-		{Key: []byte("key5"), Value: []byte("value5")},
-		{Key: []byte("key6"), Value: []byte("value6")}, // This should cause overflow
 	}
 
 	_, err = wal.AppendBatch(entries)

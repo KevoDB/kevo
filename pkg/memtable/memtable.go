@@ -173,22 +173,6 @@ func (m *MemTable) ProcessWALEntry(entry *wal.Entry) error {
 		m.Put(entry.Key, entry.Value, entry.SequenceNumber)
 	case wal.OpTypeDelete:
 		m.Delete(entry.Key, entry.SequenceNumber)
-	case wal.OpTypeBatch:
-		// Process batch operations
-		batch, err := wal.DecodeBatch(entry)
-		if err != nil {
-			return err
-		}
-
-		for i, op := range batch.Operations {
-			seqNum := batch.Seq + uint64(i)
-			switch op.Type {
-			case wal.OpTypePut:
-				m.Put(op.Key, op.Value, seqNum)
-			case wal.OpTypeDelete:
-				m.Delete(op.Key, seqNum)
-			}
-		}
 	}
 	return nil
 }
