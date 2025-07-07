@@ -115,7 +115,7 @@ func FuzzIteratorSeek(f *testing.F) {
 		for iter.Valid() && validCount < 100 { // Limit iterations to prevent infinite loops
 			key := iter.Key()
 			value := iter.Value()
-			
+
 			// Basic sanity checks
 			if key == nil {
 				t.Errorf("Iterator returned nil key")
@@ -148,7 +148,7 @@ func FuzzSequenceNumbers(f *testing.F) {
 
 		// Test sequence number handling
 		mt.Put(key, []byte("value1"), seqNum)
-		
+
 		// Insert with different sequence numbers
 		if seqNum > 0 {
 			mt.Put(key, []byte("value2"), seqNum-1) // Older
@@ -163,13 +163,13 @@ func FuzzSequenceNumbers(f *testing.F) {
 			t.Errorf("Key should be found")
 			return
 		}
-		
+
 		// Determine what the expected value should be based on sequence numbers
 		expectedValue := []byte("value1")
 		if seqNum < 18446744073709551615 {
 			expectedValue = []byte("value3") // This would be the newest
 		}
-		
+
 		if !bytes.Equal(value, expectedValue) {
 			t.Errorf("Expected value %s, got %s", string(expectedValue), string(value))
 			return
@@ -178,11 +178,11 @@ func FuzzSequenceNumbers(f *testing.F) {
 		// Verify sequence number ordering in skip list
 		iter := mt.NewIterator()
 		iter.Seek(key)
-		
+
 		if iter.Valid() && bytes.Equal(iter.Key(), key) {
 			// The first occurrence should have the highest sequence number
 			firstSeqNum := iter.SequenceNumber()
-			
+
 			// Check all entries with the same key
 			for iter.Valid() && bytes.Equal(iter.Key(), key) {
 				currentSeqNum := iter.SequenceNumber()
@@ -221,22 +221,22 @@ func FuzzConcurrentOperations(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, key, value []byte) {
 		mt := NewMemTable()
-		
+
 		// Number of goroutines
 		const numGoroutines = 10
 		const operationsPerGoroutine = 5
-		
+
 		var wg sync.WaitGroup
-		
+
 		// Start concurrent operations
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
 			go func(goroutineID int) {
 				defer wg.Done()
-				
+
 				for j := 0; j < operationsPerGoroutine; j++ {
 					seqNum := uint64(goroutineID*operationsPerGoroutine + j + 1)
-					
+
 					// Mix of operations
 					switch j % 4 {
 					case 0:
@@ -251,10 +251,10 @@ func FuzzConcurrentOperations(f *testing.F) {
 				}
 			}(i)
 		}
-		
+
 		// Wait for all operations to complete
 		wg.Wait()
-		
+
 		// Verify memtable is still in a consistent state
 		// Test basic operations still work
 		mt.Put([]byte("test_key"), []byte("test_value"), 1000)
@@ -263,11 +263,11 @@ func FuzzConcurrentOperations(f *testing.F) {
 			t.Errorf("MemTable inconsistent after concurrent operations")
 			return
 		}
-		
+
 		// Test iterator still works
 		iter := mt.NewIterator()
 		iter.SeekToFirst()
-		
+
 		validCount := 0
 		for iter.Valid() && validCount < 1000 { // Limit to prevent infinite loops
 			if iter.Key() == nil {
@@ -277,18 +277,18 @@ func FuzzConcurrentOperations(f *testing.F) {
 			iter.Next()
 			validCount++
 		}
-		
+
 		// Test immutable transition
 		mt.SetImmutable()
 		if !mt.IsImmutable() {
 			t.Errorf("MemTable should be immutable after SetImmutable")
 			return
 		}
-		
+
 		// Operations on immutable memtable should not crash
 		mt.Put([]byte("should_not_insert"), []byte("value"), 2000)
 		mt.Delete([]byte("should_not_delete"), 2001)
-		
+
 		// Get and Contains should still work on immutable memtable
 		mt.Get([]byte("test_key"))
 		mt.Contains([]byte("test_key"))
