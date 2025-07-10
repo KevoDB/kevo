@@ -12,7 +12,7 @@ import (
 // It is implemented using a skip list for efficient inserts and lookups
 type MemTable struct {
 	skipList     *SkipList
-	nextSeqNum   uint64
+	nextSeqNum   atomic.Uint64
 	creationTime time.Time
 	immutable    atomic.Bool
 	size         int64
@@ -41,8 +41,9 @@ func (m *MemTable) Put(key, value []byte, seqNum uint64) {
 	m.skipList.Insert(e)
 
 	// Update maximum sequence number
-	if seqNum > m.nextSeqNum {
-		m.nextSeqNum = seqNum + 1
+	nextSeqNum := m.nextSeqNum.Load()
+	if seqNum > nextSeqNum {
+		m.nextSeqNum.Store(seqNum + 1)
 	}
 }
 
@@ -60,8 +61,9 @@ func (m *MemTable) Delete(key []byte, seqNum uint64) {
 	m.skipList.Insert(e)
 
 	// Update maximum sequence number
-	if seqNum > m.nextSeqNum {
-		m.nextSeqNum = seqNum + 1
+	nextSeqNum := m.nextSeqNum.Load()
+	if seqNum > nextSeqNum {
+		m.nextSeqNum.Store(seqNum + 1)
 	}
 }
 
@@ -157,12 +159,12 @@ func (m *MemTable) NewIterator() *Iterator {
 func (m *MemTable) GetNextSequenceNumber() uint64 {
 	// For immutable memtables, nextSeqNum won't change
 	if m.IsImmutable() {
-		return m.nextSeqNum
+		return m.nextSeqNum.Load()
 	} else {
 		// For mutable memtables, we need read lock
 		m.mu.RLock()
 		defer m.mu.RUnlock()
-		return m.nextSeqNum
+		return m.nextSeqNum.Load()
 	}
 }
 
