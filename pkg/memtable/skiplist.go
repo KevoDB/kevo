@@ -236,21 +236,42 @@ func (s *SkipList) ApproximateSize() int64 {
 
 // Iterator provides sequential access to the skip list entries
 type Iterator struct {
-	list    *SkipList
-	current *node
+	list        *SkipList
+	current     *node
+	snapshotSeq uint64 // Only see entries <= this sequence number
 }
 
 // NewIterator creates a new Iterator for the skip list
 func (s *SkipList) NewIterator() *Iterator {
 	return &Iterator{
-		list:    s,
-		current: s.head,
+		list:        s,
+		current:     s.head,
+		snapshotSeq: 0, // No snapshot filtering by default
+	}
+}
+
+// NewIteratorWithSnapshot creates a new Iterator with snapshot isolation
+func (s *SkipList) NewIteratorWithSnapshot(snapshotSeq uint64) *Iterator {
+	return &Iterator{
+		list:        s,
+		current:     s.head,
+		snapshotSeq: snapshotSeq,
 	}
 }
 
 // Valid returns true if the iterator is positioned at a valid entry
 func (it *Iterator) Valid() bool {
-	return it.current != nil && it.current != it.list.head
+	return it.current != nil && it.current != it.list.head && it.isVisible(it.current)
+}
+
+// isVisible checks if a node is visible in the current snapshot
+func (it *Iterator) isVisible(n *node) bool {
+	// If no snapshot isolation (snapshotSeq == 0), all entries are visible
+	if it.snapshotSeq == 0 {
+		return true
+	}
+	// Only show entries that existed at snapshot time
+	return n.entry.seqNum <= it.snapshotSeq
 }
 
 // Next advances the iterator to the next entry
@@ -258,12 +279,24 @@ func (it *Iterator) Next() {
 	if it.current == nil {
 		return
 	}
+
+	// Advance to next node
 	it.current = it.current.getNext(0)
+
+	// Skip nodes that are not visible in our snapshot
+	for it.current != nil && it.current != it.list.head && !it.isVisible(it.current) {
+		it.current = it.current.getNext(0)
+	}
 }
 
 // SeekToFirst positions the iterator at the first entry
 func (it *Iterator) SeekToFirst() {
 	it.current = it.list.head.getNext(0)
+
+	// Skip nodes that are not visible in our snapshot
+	for it.current != nil && it.current != it.list.head && !it.isVisible(it.current) {
+		it.current = it.current.getNext(0)
+	}
 }
 
 // Seek positions the iterator at the first entry with a key >= target
@@ -285,6 +318,11 @@ func (it *Iterator) Seek(key []byte) {
 
 	// Move to the next node at level 0, which should be >= target
 	it.current = current.getNext(0)
+
+	// Skip nodes that are not visible in our snapshot
+	for it.current != nil && it.current != it.list.head && !it.isVisible(it.current) {
+		it.current = it.current.getNext(0)
+	}
 }
 
 // Key returns the key of the current entry

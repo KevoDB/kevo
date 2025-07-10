@@ -147,11 +147,12 @@ func (m *MemTable) NewIterator() *Iterator {
 	if m.IsImmutable() {
 		return m.skipList.NewIterator()
 	} else {
-		// For mutable memtables, we need read lock to ensure stability during iteration
+		// For mutable memtables, capture current snapshot sequence number
 		m.mu.RLock()
-		defer m.mu.RUnlock()
+		snapshotSeq := m.nextSeqNum.Load()
+		m.mu.RUnlock()
 
-		return m.skipList.NewIterator()
+		return m.skipList.NewIteratorWithSnapshot(snapshotSeq)
 	}
 }
 

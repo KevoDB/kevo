@@ -343,3 +343,39 @@ The iterator system integrates with all storage layers:
 4. **Engine Integration**:
    - Provides unified view across all components
    - Handles version selection and visibility
+
+## Snapshot Isolation
+
+Kevo implements snapshot isolation for iterators using sequence number-based versioning. This ensures that iterators see a consistent point-in-time view of the database without blocking concurrent writes.
+
+### How It Works
+
+1. **Sequence Number Capture**: When an iterator is created, it captures the current sequence number as its "snapshot sequence"
+2. **Visibility Filtering**: The iterator only sees entries with sequence numbers ≤ its snapshot sequence
+3. **Lock-Free Traversal**: Once created, iterators traverse without holding locks since they have a consistent view
+
+### Benefits
+
+- **Point-in-time consistency**: Each iterator sees the database state at creation time
+- **Concurrent access**: Multiple iterators can traverse concurrently without interfering
+- **No blocking**: Writers don't block readers and vice versa
+- **Memory efficient**: No data copying - uses existing sequence number versioning
+
+### Implementation
+
+For mutable memtables, iterators capture the current sequence number:
+
+```go
+// Capture current snapshot sequence number
+snapshotSeq := m.nextSeqNum.Load()
+return m.skipList.NewIteratorWithSnapshot(snapshotSeq)
+```
+
+For immutable memtables, no snapshot isolation is needed since the data cannot change:
+
+```go
+// Immutable memtables are safe to iterate without snapshots
+return m.skipList.NewIterator()
+```
+
+This approach leverages the existing sequence number infrastructure already present in WAL entries, MemTable entries, and SSTable entries, providing snapshot isolation with minimal overhead.

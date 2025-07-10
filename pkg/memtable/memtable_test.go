@@ -347,3 +347,61 @@ func TestMemTableIterator(t *testing.T) {
 		it.Next()
 	}
 }
+
+func TestMemTableIteratorSnapshot(t *testing.T) {
+	mt := NewMemTable()
+
+	// Add initial entries
+	mt.Put([]byte("key1"), []byte("value1"), 1)
+	mt.Put([]byte("key2"), []byte("value2"), 2)
+	mt.Put([]byte("key3"), []byte("value3"), 3)
+
+	// Create iterator (should capture snapshot at seq 4 since nextSeqNum is 4)
+	iter1 := mt.NewIterator()
+
+	// Add more entries after iterator creation
+	mt.Put([]byte("key4"), []byte("value4"), 4)
+	mt.Put([]byte("key5"), []byte("value5"), 5)
+
+	// Count what iter1 sees
+	var iter1Keys []string
+	for iter1.SeekToFirst(); iter1.Valid(); iter1.Next() {
+		iter1Keys = append(iter1Keys, string(iter1.Key()))
+	}
+
+	// iter1 should see entries up to its snapshot (seq 1,2,3,4)
+	expectedIter1 := []string{"key1", "key2", "key3", "key4"}
+	if len(iter1Keys) != len(expectedIter1) {
+		t.Errorf("iter1 expected %d keys, got %d: %v", len(expectedIter1), len(iter1Keys), iter1Keys)
+	}
+
+	// Create new iterator after more entries (should capture snapshot at seq 6)
+	iter2 := mt.NewIterator()
+	mt.Put([]byte("key6"), []byte("value6"), 6)
+
+	// Count what iter2 sees
+	var iter2Keys []string
+	for iter2.SeekToFirst(); iter2.Valid(); iter2.Next() {
+		iter2Keys = append(iter2Keys, string(iter2.Key()))
+	}
+
+	// iter2 should see entries up to its snapshot (seq 1,2,3,4,5,6)
+	expectedIter2 := []string{"key1", "key2", "key3", "key4", "key5", "key6"}
+	if len(iter2Keys) != len(expectedIter2) {
+		t.Errorf("iter2 expected %d keys, got %d: %v", len(expectedIter2), len(iter2Keys), iter2Keys)
+	}
+
+	// Test with immutable memtable (no snapshot needed)
+	mt.SetImmutable()
+	iter3 := mt.NewIterator()
+
+	var iter3Keys []string
+	for iter3.SeekToFirst(); iter3.Valid(); iter3.Next() {
+		iter3Keys = append(iter3Keys, string(iter3.Key()))
+	}
+
+	// iter3 should see all entries since memtable is immutable
+	if len(iter3Keys) != 6 {
+		t.Errorf("iter3 expected 6 keys, got %d: %v", len(iter3Keys), iter3Keys)
+	}
+}

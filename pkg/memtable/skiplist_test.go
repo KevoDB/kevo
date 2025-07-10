@@ -230,3 +230,78 @@ func TestSkipListApproximateSize(t *testing.T) {
 		t.Errorf("expected size to be %d after second insert, got %d", expectedSize, size)
 	}
 }
+
+func TestSkipListIteratorSnapshot(t *testing.T) {
+	sl := NewSkipList()
+
+	// Add initial entries with sequence numbers 1, 2, 3
+	e1 := newEntry([]byte("key1"), []byte("value1"), TypeValue, 1)
+	e2 := newEntry([]byte("key2"), []byte("value2"), TypeValue, 2)
+	e3 := newEntry([]byte("key3"), []byte("value3"), TypeValue, 3)
+
+	sl.Insert(e1)
+	sl.Insert(e2)
+	sl.Insert(e3)
+
+	// Create snapshot iterator at sequence 2 (should only see seq 1 and 2)
+	snapIter := sl.NewIteratorWithSnapshot(2)
+
+	// Count visible entries
+	var visibleKeys []string
+	for snapIter.SeekToFirst(); snapIter.Valid(); snapIter.Next() {
+		visibleKeys = append(visibleKeys, string(snapIter.Key()))
+	}
+
+	// Should only see key1 and key2 (seq 1 and 2), not key3 (seq 3)
+	expectedKeys := []string{"key1", "key2"}
+	if len(visibleKeys) != len(expectedKeys) {
+		t.Errorf("expected %d visible keys, got %d", len(expectedKeys), len(visibleKeys))
+	}
+
+	for i, key := range expectedKeys {
+		if i >= len(visibleKeys) || visibleKeys[i] != key {
+			t.Errorf("expected key %s at position %d, got %s", key, i, visibleKeys[i])
+		}
+	}
+
+	// Add more entries with higher sequence numbers
+	e4 := newEntry([]byte("key4"), []byte("value4"), TypeValue, 4)
+	e5 := newEntry([]byte("key5"), []byte("value5"), TypeValue, 5)
+	sl.Insert(e4)
+	sl.Insert(e5)
+
+	// The snapshot iterator should still only see the original entries
+	visibleKeys = nil
+	for snapIter.SeekToFirst(); snapIter.Valid(); snapIter.Next() {
+		visibleKeys = append(visibleKeys, string(snapIter.Key()))
+	}
+
+	if len(visibleKeys) != 2 {
+		t.Errorf("snapshot iterator should still only see 2 entries, got %d", len(visibleKeys))
+	}
+
+	// Create a new iterator with higher snapshot sequence
+	newSnapIter := sl.NewIteratorWithSnapshot(4)
+	var newVisibleKeys []string
+	for newSnapIter.SeekToFirst(); newSnapIter.Valid(); newSnapIter.Next() {
+		newVisibleKeys = append(newVisibleKeys, string(newSnapIter.Key()))
+	}
+
+	// Should see key1, key2, key3, key4 (seq 1,2,3,4), but not key5 (seq 5)
+	expectedNewKeys := []string{"key1", "key2", "key3", "key4"}
+	if len(newVisibleKeys) != len(expectedNewKeys) {
+		t.Errorf("expected %d visible keys in new snapshot, got %d", len(expectedNewKeys), len(newVisibleKeys))
+	}
+
+	// Create iterator with no snapshot (should see all entries)
+	noSnapIter := sl.NewIterator()
+	var allKeys []string
+	for noSnapIter.SeekToFirst(); noSnapIter.Valid(); noSnapIter.Next() {
+		allKeys = append(allKeys, string(noSnapIter.Key()))
+	}
+
+	expectedAllKeys := []string{"key1", "key2", "key3", "key4", "key5"}
+	if len(allKeys) != len(expectedAllKeys) {
+		t.Errorf("expected %d total keys with no snapshot, got %d", len(expectedAllKeys), len(allKeys))
+	}
+}
