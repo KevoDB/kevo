@@ -39,17 +39,10 @@ func (b *Buffer) Put(key, value []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Create safe copies of key and value
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
-
-	valueCopy := make([]byte, len(value))
-	copy(valueCopy, value)
-
-	// Store in the operations map
-	b.operations[string(keyCopy)] = &Operation{
-		Key:      keyCopy,
-		Value:    valueCopy,
+	// Store in the operations map - skiplist handles defensive copying
+	b.operations[string(key)] = &Operation{
+		Key:      key,
+		Value:    value,
 		IsDelete: false,
 	}
 }
@@ -59,13 +52,9 @@ func (b *Buffer) Delete(key []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Create a safe copy of the key
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
-
-	// Store in the operations map
-	b.operations[string(keyCopy)] = &Operation{
-		Key:      keyCopy,
+	// Store in the operations map - skiplist handles defensive copying
+	b.operations[string(key)] = &Operation{
+		Key:      key,
 		Value:    nil,
 		IsDelete: true,
 	}
@@ -86,10 +75,8 @@ func (b *Buffer) Get(key []byte) ([]byte, bool) {
 		return nil, true // Key exists but is marked for deletion
 	}
 
-	// Return a copy of the value to prevent modification
-	valueCopy := make([]byte, len(op.Value))
-	copy(valueCopy, op.Value)
-	return valueCopy, true
+	// Return the value directly - skiplist handles defensive copying
+	return op.Value, true
 }
 
 // Operations returns a sorted list of all operations in the transaction
@@ -97,22 +84,10 @@ func (b *Buffer) Operations() []*Operation {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	// Create a slice of operations
+	// Create a slice of operations - skiplist handles defensive copying
 	ops := make([]*Operation, 0, len(b.operations))
 	for _, op := range b.operations {
-		// Make a copy of the operation
-		opCopy := &Operation{
-			Key:      make([]byte, len(op.Key)),
-			IsDelete: op.IsDelete,
-		}
-		copy(opCopy.Key, op.Key)
-
-		if op.Value != nil {
-			opCopy.Value = make([]byte, len(op.Value))
-			copy(opCopy.Value, op.Value)
-		}
-
-		ops = append(ops, opCopy)
+		ops = append(ops, op)
 	}
 
 	// Sort by key for consistent application order

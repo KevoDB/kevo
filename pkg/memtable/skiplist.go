@@ -40,9 +40,19 @@ type entry struct {
 
 // newEntry creates a new entry
 func newEntry(key, value []byte, valueType ValueType, seqNum uint64) *entry {
+	// Create defensive copies to prevent mutation of stored data
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+
+	var valueCopy []byte
+	if value != nil {
+		valueCopy = make([]byte, len(value))
+		copy(valueCopy, value)
+	}
+
 	return &entry{
-		key:       key,
-		value:     value,
+		key:       keyCopy,
+		value:     valueCopy,
 		valueType: valueType,
 		seqNum:    seqNum,
 	}
@@ -282,7 +292,10 @@ func (it *Iterator) Key() []byte {
 	if !it.Valid() {
 		return nil
 	}
-	return it.current.entry.key
+	// Return defensive copy to prevent mutation of stored data
+	keyCopy := make([]byte, len(it.current.entry.key))
+	copy(keyCopy, it.current.entry.key)
+	return keyCopy
 }
 
 // Value returns the value of the current entry
@@ -293,7 +306,14 @@ func (it *Iterator) Value() []byte {
 
 	// For tombstones (deletion markers), we still return nil
 	// but we preserve them during iteration so compaction can see them
-	return it.current.entry.value
+	if it.current.entry.value == nil {
+		return nil
+	}
+
+	// Return defensive copy to prevent mutation of stored data
+	valueCopy := make([]byte, len(it.current.entry.value))
+	copy(valueCopy, it.current.entry.value)
+	return valueCopy
 }
 
 // ValueType returns the type of the current entry (TypeValue or TypeDeletion)

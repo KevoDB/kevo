@@ -297,8 +297,8 @@ func TestTransactionIterators(t *testing.T) {
 	var values [][]byte
 
 	for it.SeekToFirst(); it.Valid(); it.Next() {
-		keys = append(keys, append([]byte{}, it.Key()...))
-		values = append(values, append([]byte{}, it.Value()...))
+		keys = append(keys, it.Key())
+		values = append(values, it.Value())
 	}
 
 	// The iterator might still return the deleted key 'c' (with a tombstone marker)
@@ -343,8 +343,8 @@ func TestTransactionIterators(t *testing.T) {
 	values = nil
 
 	for rangeIt.SeekToFirst(); rangeIt.Valid(); rangeIt.Next() {
-		keys = append(keys, append([]byte{}, rangeIt.Key()...))
-		values = append(values, append([]byte{}, rangeIt.Value()...))
+		keys = append(keys, rangeIt.Key())
+		values = append(values, rangeIt.Value())
 	}
 
 	// The range should include b and d, and might include c with a tombstone
