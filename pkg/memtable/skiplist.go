@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -82,7 +81,7 @@ type node struct {
 	height int32
 	// next contains pointers to the next nodes at each level
 	// This is allocated as a single block for cache efficiency
-	next [MaxHeight]unsafe.Pointer
+	next [MaxHeight]atomic.Pointer[node]
 }
 
 // newNode creates a new node with a random height
@@ -95,12 +94,12 @@ func newNode(e *entry, height int) *node {
 
 // getNext returns the next node at the given level
 func (n *node) getNext(level int) *node {
-	return (*node)(atomic.LoadPointer(&n.next[level]))
+	return n.next[level].Load()
 }
 
 // setNext sets the next node at the given level
 func (n *node) setNext(level int, next *node) {
-	atomic.StorePointer(&n.next[level], unsafe.Pointer(next))
+	n.next[level].Store(next)
 }
 
 // SkipList is a concurrent skip list implementation for the MemTable
