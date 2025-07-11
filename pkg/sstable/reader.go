@@ -70,6 +70,33 @@ func validateHeaderStructure(ft *footer.Footer, fileSize int64) error {
 	return nil
 }
 
+// validateBloomFilterSize validates bloom filter size to prevent out-of-bounds reads
+func validateBloomFilterSize(filterSize, pos, totalSize uint32) error {
+	// Check for zero or extremely large filter sizes
+	if filterSize == 0 {
+		return fmt.Errorf("bloom filter size cannot be zero")
+	}
+
+	// Prevent integer overflow in addition
+	if filterSize > totalSize {
+		return fmt.Errorf("bloom filter size %d exceeds total bloom data size %d", filterSize, totalSize)
+	}
+
+	// Check that filter doesn't extend beyond available data
+	if pos+filterSize > totalSize {
+		return fmt.Errorf("bloom filter extends beyond available data: pos %d + size %d > total %d",
+			pos, filterSize, totalSize)
+	}
+
+	// Set reasonable upper limit to prevent memory exhaustion
+	const maxReasonableFilterSize = 64 * 1024 * 1024 // 64MB
+	if filterSize > maxReasonableFilterSize {
+		return fmt.Errorf("bloom filter size %d exceeds reasonable limit %d", filterSize, maxReasonableFilterSize)
+	}
+
+	return nil
+}
+
 // IOManager handles file I/O operations for SSTable
 type IOManager struct {
 	path     string
@@ -342,6 +369,12 @@ func OpenReader(path string) (*Reader, error) {
 			blockOffset := binary.LittleEndian.Uint64(bloomFilterData[pos : pos+8])
 			filterSize := binary.LittleEndian.Uint32(bloomFilterData[pos+8 : pos+12])
 			pos += 12
+
+			// Validate filter size before using it
+			if err := validateBloomFilterSize(filterSize, pos, ft.BloomFilterSize); err != nil {
+				ioManager.Close()
+				return nil, fmt.Errorf("invalid bloom filter at position %d: %w", pos-12, err)
+			}
 
 			// Ensure we have enough data for the filter
 			if pos+filterSize > ft.BloomFilterSize {

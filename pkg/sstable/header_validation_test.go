@@ -3,6 +3,7 @@
 package sstable
 
 import (
+	"encoding/binary"
 	"os"
 	"testing"
 
@@ -173,5 +174,94 @@ func TestHeaderValidation_IntegrationWithMaliciousFile(t *testing.T) {
 	if err == nil {
 		reader.Close()
 		t.Error("Expected OpenReader to fail with malicious file")
+	}
+}
+
+// TestBloomFilterValidation_OversizedFilter tests rejection of oversized bloom filters
+func TestBloomFilterValidation_OversizedFilter(t *testing.T) {
+	// Test the validation function directly
+	err := validateBloomFilterSize(100, 50, 80) // filterSize > remaining data
+	if err == nil {
+		t.Error("Expected validation to fail with oversized filter")
+	}
+}
+
+// TestBloomFilterValidation_ZeroFilterSize tests rejection of zero-sized bloom filters
+func TestBloomFilterValidation_ZeroFilterSize(t *testing.T) {
+	err := validateBloomFilterSize(0, 10, 100) // zero size
+	if err == nil {
+		t.Error("Expected validation to fail with zero filter size")
+	}
+}
+
+// TestBloomFilterValidation_ExtremelyLargeFilter tests rejection of extremely large filters
+func TestBloomFilterValidation_ExtremelyLargeFilter(t *testing.T) {
+	err := validateBloomFilterSize(128*1024*1024, 0, 128*1024*1024) // 128MB filter
+	if err == nil {
+		t.Error("Expected validation to fail with extremely large filter")
+	}
+}
+
+// TestBloomFilterValidation_IntegerOverflow tests protection against integer overflow
+func TestBloomFilterValidation_IntegerOverflow(t *testing.T) {
+	// Test case where filterSize + pos would overflow
+	err := validateBloomFilterSize(4294967295, 10, 100) // MaxUint32 + 10 would overflow
+	if err == nil {
+		t.Error("Expected validation to fail with potential integer overflow")
+	}
+}
+
+// TestBloomFilterValidation_ValidFilter tests that valid filters pass validation
+func TestBloomFilterValidation_ValidFilter(t *testing.T) {
+	err := validateBloomFilterSize(1024, 0, 2048) // Valid 1KB filter
+	if err != nil {
+		t.Errorf("Expected valid filter to pass validation, got error: %v", err)
+	}
+}
+
+// TestBloomFilterValidation_MaliciousSSTableWithBadBloomFilter tests malicious SSTable with bad bloom filter
+func TestBloomFilterValidation_MaliciousSSTableWithBadBloomFilter(t *testing.T) {
+	// Create a temporary file with malicious bloom filter
+	tempFile, err := os.CreateTemp("", "malicious-bloom-*.sst")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Write some data to make file size reasonable
+	data := make([]byte, 1000)
+	tempFile.Write(data)
+
+	// Create malicious bloom filter data
+	bloomData := make([]byte, 20)
+	// Write block offset (8 bytes)
+	binary.LittleEndian.PutUint64(bloomData[0:8], 0)
+	// Write malicious filter size (4 bytes) - larger than remaining data
+	binary.LittleEndian.PutUint32(bloomData[8:12], 100) // Claims 100 bytes but only 8 bytes remain
+
+	// Write the bloom filter data
+	tempFile.Write(bloomData)
+
+	// Create footer with bloom filter
+	ft := &footer.Footer{
+		Magic:             footer.FooterMagic,
+		Version:           footer.CurrentVersion,
+		IndexOffset:       100,
+		IndexSize:         200,
+		NumEntries:        1,
+		BloomFilterOffset: 1000,
+		BloomFilterSize:   20,
+	}
+
+	// Write footer
+	footerData := ft.Encode()
+	tempFile.Write(footerData)
+	tempFile.Close()
+
+	// Try to open the malicious file - should fail
+	reader, err := OpenReader(tempFile.Name())
+	if err == nil {
+		reader.Close()
+		t.Error("Expected OpenReader to fail with malicious bloom filter")
 	}
 }
