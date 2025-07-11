@@ -7,7 +7,7 @@ package version
 // Example: go build -ldflags "-X github.com/KevoDB/kevo/pkg/version.Version=1.2.3"
 var (
 	// Version is the semantic version of Kevo
-	Version = "1.4.1"
+	Version = "1.4.2"
 
 	// GitCommit is the git commit hash (set via ldflags)
 	GitCommit = "unknown"
