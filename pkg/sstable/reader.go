@@ -12,6 +12,64 @@ import (
 	"github.com/KevoDB/kevo/pkg/sstable/footer"
 )
 
+// validateHeaderStructure performs fast structural validation of SSTable metadata
+func validateHeaderStructure(ft *footer.Footer, fileSize int64) error {
+	// Check that index offset is within file bounds
+	if ft.IndexOffset >= uint64(fileSize) {
+		return fmt.Errorf("index offset %d exceeds file size %d", ft.IndexOffset, fileSize)
+	}
+
+	// Check that index size is reasonable and within bounds
+	if ft.IndexSize == 0 {
+		return fmt.Errorf("index size cannot be zero")
+	}
+
+	// Check that index doesn't extend beyond file
+	indexEnd := ft.IndexOffset + uint64(ft.IndexSize)
+	if indexEnd > uint64(fileSize) {
+		return fmt.Errorf("index extends beyond file: offset %d + size %d > file size %d",
+			ft.IndexOffset, ft.IndexSize, fileSize)
+	}
+
+	// Check that index doesn't overlap with footer
+	footerStart := uint64(fileSize) - uint64(footer.FooterSize)
+	if indexEnd > footerStart {
+		return fmt.Errorf("index overlaps with footer: index end %d > footer start %d",
+			indexEnd, footerStart)
+	}
+
+	// Validate bloom filter offsets if present
+	if ft.BloomFilterOffset > 0 {
+		if ft.BloomFilterOffset >= uint64(fileSize) {
+			return fmt.Errorf("bloom filter offset %d exceeds file size %d",
+				ft.BloomFilterOffset, fileSize)
+		}
+
+		if ft.BloomFilterSize == 0 {
+			return fmt.Errorf("bloom filter offset set but size is zero")
+		}
+
+		bloomEnd := ft.BloomFilterOffset + uint64(ft.BloomFilterSize)
+		if bloomEnd > uint64(fileSize) {
+			return fmt.Errorf("bloom filter extends beyond file: offset %d + size %d > file size %d",
+				ft.BloomFilterOffset, ft.BloomFilterSize, fileSize)
+		}
+
+		// Bloom filter should not overlap with footer
+		if bloomEnd > footerStart {
+			return fmt.Errorf("bloom filter overlaps with footer: bloom end %d > footer start %d",
+				bloomEnd, footerStart)
+		}
+	}
+
+	// Basic sanity check on number of entries
+	if ft.NumEntries == 0 {
+		return fmt.Errorf("SSTable cannot have zero entries")
+	}
+
+	return nil
+}
+
 // IOManager handles file I/O operations for SSTable
 type IOManager struct {
 	path     string
@@ -225,6 +283,12 @@ func OpenReader(path string) (*Reader, error) {
 	if err != nil {
 		ioManager.Close()
 		return nil, fmt.Errorf("failed to decode footer: %w", err)
+	}
+
+	// Validate critical structure before proceeding
+	if err := validateHeaderStructure(ft, fileSize); err != nil {
+		ioManager.Close()
+		return nil, fmt.Errorf("invalid SSTable structure: %w", err)
 	}
 
 	blockFetcher := NewBlockFetcher(ioManager)
