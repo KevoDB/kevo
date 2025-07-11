@@ -3,7 +3,40 @@ package block
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
+
+// validateDeltaEncoding validates delta encoding parameters to prevent buffer overruns
+func validateDeltaEncoding(sharedLen, unsharedLen uint16, currentKey, data []byte) error {
+	// Check if currentKey is nil or empty
+	if currentKey == nil {
+		return fmt.Errorf("cannot use delta encoding with nil current key")
+	}
+
+	// Check if sharedLen exceeds current key length
+	if sharedLen > uint16(len(currentKey)) {
+		return fmt.Errorf("shared length %d exceeds current key length %d", sharedLen, len(currentKey))
+	}
+
+	// Check if we have enough data for the unshared portion
+	if uint32(len(data)) < uint32(unsharedLen) {
+		return fmt.Errorf("insufficient data for unshared key: need %d bytes, have %d", unsharedLen, len(data))
+	}
+
+	// Check for reasonable key length limits to prevent memory exhaustion
+	const maxReasonableKeyLen = 64 * 1024 // 64KB
+	totalKeyLen := uint32(sharedLen) + uint32(unsharedLen)
+	if totalKeyLen > maxReasonableKeyLen {
+		return fmt.Errorf("reconstructed key length %d exceeds reasonable limit %d", totalKeyLen, maxReasonableKeyLen)
+	}
+
+	// Check for integer overflow in key length calculation
+	if uint32(sharedLen) > uint32(sharedLen)+uint32(unsharedLen) {
+		return fmt.Errorf("integer overflow in key length calculation")
+	}
+
+	return nil
+}
 
 // Iterator allows iterating through key-value pairs in a block
 type Iterator struct {
@@ -313,8 +346,8 @@ func (it *Iterator) decodeNext() ([]byte, []byte, bool) {
 		unsharedLen := binary.LittleEndian.Uint16(data)
 		data = data[2:]
 
-		if sharedLen > uint16(len(it.currentKey)) ||
-			uint32(len(data)) < uint32(unsharedLen) {
+		// Validate delta encoding parameters for security
+		if err := validateDeltaEncoding(sharedLen, unsharedLen, it.currentKey, data); err != nil {
 			return nil, nil, false
 		}
 
